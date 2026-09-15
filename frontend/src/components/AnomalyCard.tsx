@@ -1,7 +1,8 @@
 import React from "react";
 import { AlertTriangle, ArrowUpRight, TrendingUp, DollarSign, Shuffle, Star } from "lucide-react";
 import { AnomalyItem } from "../types";
-import { cn, formatPercent, formatPrice } from "../lib/utils";
+import { cn, formatPercent, formatPrice, formatSignedPercent, formatSignedZScore } from "../lib/utils";
+
 
 interface AnomalyCardProps {
   anomaly: AnomalyItem;
@@ -74,7 +75,7 @@ export const AnomalyCard: React.FC<AnomalyCardProps> = ({
           <div className="text-slate-400 mb-1 flex items-center justify-between">
             <span>7d Recent Avg</span>
             <span className={cn("font-bold font-mono", isCritical ? "text-red-400" : "text-amber-400")}>
-              +{formatPercent(anomaly.rate_delta)}
+              {formatSignedPercent(anomaly.rate_delta)}
             </span>
           </div>
           <div className="text-lg font-bold text-slate-100 font-mono">
@@ -91,12 +92,13 @@ export const AnomalyCard: React.FC<AnomalyCardProps> = ({
             <TrendingUp className="w-3.5 h-3.5 text-red-400" />
           </div>
           <div className="text-lg font-bold text-slate-100 font-mono">
-            +{anomaly.z_score.toFixed(2)}&sigma;
+            {formatSignedZScore(anomaly.z_score)}
           </div>
           <div className="text-[10px] text-slate-400 mt-0.5">
             {anomaly.z_score >= 2.5 ? "Severe Congestion" : "Elevated Risk"}
           </div>
         </div>
+
       </div>
 
       {/* Price & Price Hike indicator */}

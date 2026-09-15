@@ -1,10 +1,11 @@
 import React, { useEffect, useState } from "react";
-import { X, Activity, DollarSign, TrendingUp, Shuffle } from "lucide-react";
+import { X, Activity, DollarSign, TrendingUp, TrendingDown, Shuffle } from "lucide-react";
 import { PoolHistory } from "../types";
 import { fetchPoolHistory } from "../lib/api";
 import { PreemptionChart } from "./PreemptionChart";
 import { PriceTimeline } from "./PriceTimeline";
-import { cn, formatPercent, formatPrice } from "../lib/utils";
+import { cn, formatPercent, formatPrice, formatSignedPercent, formatSignedZScore } from "../lib/utils";
+
 
 interface InspectorModalProps {
   isOpen: boolean;
@@ -114,10 +115,14 @@ export const InspectorModal: React.FC<InspectorModalProps> = ({
                 <div
                   className={cn(
                     "text-lg font-bold",
-                    history.rate_delta > 0.15 ? "text-red-400" : "text-emerald-400"
+                    history.rate_delta > 0.15
+                      ? "text-red-400"
+                      : history.rate_delta > 0.05
+                      ? "text-amber-400"
+                      : "text-emerald-400"
                   )}
                 >
-                  +{formatPercent(history.rate_delta)}
+                  {formatSignedPercent(history.rate_delta)}
                 </div>
                 <div className="text-[10px] text-slate-500">vs 23-day baseline</div>
               </div>
@@ -127,14 +132,29 @@ export const InspectorModal: React.FC<InspectorModalProps> = ({
                 <div
                   className={cn(
                     "text-lg font-bold flex items-center gap-1",
-                    history.z_score >= 2.5 ? "text-red-400" : "text-amber-400"
+                    history.z_score >= 2.5
+                      ? "text-red-400"
+                      : history.z_score >= 1.8
+                      ? "text-amber-400"
+                      : "text-emerald-400"
                   )}
                 >
-                  <TrendingUp className="w-4 h-4" />
-                  +{history.z_score.toFixed(2)}&sigma;
+                  {history.z_score >= 0 ? (
+                    <TrendingUp className="w-4 h-4" />
+                  ) : (
+                    <TrendingDown className="w-4 h-4" />
+                  )}
+                  {formatSignedZScore(history.z_score)}
                 </div>
-                <div className="text-[10px] text-slate-500">Statistical deviation</div>
+                <div className="text-[10px] text-slate-500">
+                  {history.z_score >= 2.5
+                    ? "Severe Congestion"
+                    : history.z_score >= 1.8
+                    ? "Elevated Risk"
+                    : "Stable Baseline"}
+                </div>
               </div>
+
 
               <div className="bg-slate-950 p-3 rounded-xl border border-slate-800">
                 <div className="text-slate-400 mb-1">Current Spot Price</div>
