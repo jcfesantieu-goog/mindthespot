@@ -1,0 +1,126 @@
+"""Tests for FastAPI endpoints and query caching."""
+
+import pytest
+from fastapi.testclient import TestClient
+
+from mindthespot.api.app import app
+
+
+@pytest.fixture
+def client():
+    return TestClient(app)
+
+
+def test_health_endpoint(client):
+    response = client.get("/api/health")
+    assert response.status_code == 200
+    data = response.json()
+    assert data["status"] == "ok"
+    assert data["version"] == "0.1.0"
+    assert "timestamp" in data
+
+
+def test_list_anomalies(client):
+    response = client.get("/api/v1/anomalies")
+    assert response.status_code == 200
+    data = response.json()
+    assert isinstance(data, list)
+    assert len(data) >= 1
+
+    first = data[0]
+    assert "pool_key" in first
+    assert "z_score" in first
+    assert "severity" in first
+    assert "pivot_count" in first
+    assert first["severity"] in ["CRITICAL", "ELEVATED"]
+
+
+def test_filter_anomalies_by_severity(client):
+    response = client.get("/api/v1/anomalies?severity=CRITICAL")
+    assert response.status_code == 200
+    data = response.json()
+    assert isinstance(data, list)
+    for item in data:
+        assert item["severity"] == "CRITICAL"
+
+
+def test_list_pools_and_search(client):
+    response = client.get("/api/v1/pools")
+    assert response.status_code == 200
+    data = response.json()
+    assert len(data) > 10
+
+    # Search for c4d
+    response_search = client.get("/api/v1/pools?search=c4d")
+    assert response_search.status_code == 200
+    data_search = response_search.json()
+    for item in data_search:
+        assert "c4d" in item["machine_type"] or "c4d" in item["family"]
+
+
+def test_get_pool_history(client):
+    # Retrieve a valid pool from list
+    pools_res = client.get("/api/v1/pools")
+    pool = pools_res.json()[0]
+
+    url = f"/api/v1/pools/{pool['region']}/{pool['zone']}/{pool['machine_type']}/history"
+    res = client.get(url)
+    assert res.status_code == 200
+    data = res.json()
+    assert data["pool_key"] == pool["pool_key"]
+    assert len(data["rates"]) == 30
+    assert len(data["intervals"]) >= 1
+    assert "z_score" in data
+
+
+def test_get_pool_history_not_found(client):
+    res = client.get("/api/v1/pools/non-existent-region/zone-x/custom-8/history")
+    assert res.status_code == 404
+
+
+def test_get_pool_pivots(client):
+    # Lookup pivots for a congested pool (e.g. europe-west4 / europe-west4-a / c4d-standard-16)
+    url = "/api/v1/pivots/europe-west4/europe-west4-a/c4d-standard-16"
+    res = client.get(url)
+    assert res.status_code == 200
+    data = res.json()
+    assert "pivots" in data
+    assert len(data["pivots"]) >= 1
+
+    first_pivot = data["pivots"][0]
+    assert first_pivot["preemption_savings"] > 0
+    assert first_pivot["pivot_type"] in ["ZONE_PIVOT", "FAMILY_PIVOT"]
+
+
+def test_watchlist_workflow(client):
+    # 1. Get existing watchlist
+    get_res = client.get("/api/v1/watchlist")
+    assert get_res.status_code == 200
+    initial_watchlist = get_res.json()
+    initial_count = len(initial_watchlist)
+
+    # 2. Add custom entry
+    payload = {
+        "name": "New Team Custom Target",
+        "region": "us-east4",
+        "zones": ["us-east4-a"],
+        "machine_types": ["c4a-standard-16"],
+        "alert_threshold_z": 2.0,
+    }
+    post_res = client.post("/api/v1/watchlist", json=payload)
+    assert post_res.status_code == 200
+    assert post_res.json()["status"] == "success"
+
+    # 3. Verify watchlist updated
+    get_res2 = client.get("/api/v1/watchlist")
+    assert len(get_res2.json()) == initial_count + 1
+
+
+def test_spa_serving():
+    from mindthespot.api.app import create_app
+    new_app = create_app()
+    with TestClient(new_app) as fresh_client:
+        res = fresh_client.get("/")
+        assert res.status_code == 200
+        assert "<!doctype html>" in res.text
+

@@ -1,0 +1,151 @@
+version: "1.0"
+
+regions:
+  - region: "europe-west4"
+    description: "Netherlands (Eemshaven)"
+    zones:
+      - "europe-west4-a"
+      - "europe-west4-b"
+      - "europe-west4-c"
+
+  - region: "europe-west1"
+    description: "Belgium (St. Ghislain)"
+    zones:
+      - "europe-west1-b"
+      - "europe-west1-c"
+      - "europe-west1-d"
+
+  - region: "europe-west9"
+    description: "France (Paris)"
+    zones:
+      - "europe-west9-a"
+      - "europe-west9-b"
+      - "europe-west9-c"
+
+  - region: "us-central1"
+    description: "US Central (Iowa)"
+    zones:
+      - "us-central1-a"
+      - "us-central1-b"
+      - "us-central1-c"
+      - "us-central1-f"
+
+  - region: "us-east4"
+    description: "US East (Northern Virginia)"
+    zones:
+      - "us-east4-a"
+      - "us-east4-b"
+      - "us-east4-c"
+
+  - region: "us-west1"
+    description: "US West (Oregon)"
+    zones:
+      - "us-west1-a"
+      - "us-west1-b"
+      - "us-west1-c"
+
+families:
+  - family: "c4d"
+    category: "compute-optimized"
+    description: "AMD Turin (5th Gen EPYC) Compute-Optimized"
+    machine_types:
+      - "c4d-standard-4"
+      - "c4d-standard-8"
+      - "c4d-standard-16"
+      - "c4d-standard-32"
+      - "c4d-standard-64"
+    equivalent_families:
+      - "c3d"
+      - "c4a"
+      - "n2d"
+
+  - family: "c3d"
+    category: "compute-optimized"
+    description: "AMD Genoa (4th Gen EPYC) Compute-Optimized"
+    machine_types:
+      - "c3d-standard-4"
+      - "c3d-standard-8"
+      - "c3d-standard-16"
+      - "c3d-standard-30"
+      - "c3d-standard-60"
+    equivalent_families:
+      - "c4d"
+      - "c4a"
+      - "n2d"
+
+  - family: "c4a"
+    category: "compute-optimized"
+    description: "Google Axion (Arm Neoverse-V2) Compute-Optimized"
+    machine_types:
+      - "c4a-standard-4"
+      - "c4a-standard-8"
+      - "c4a-standard-16"
+      - "c4a-standard-32"
+      - "c4a-standard-48"
+    equivalent_families:
+      - "c4d"
+      - "c3d"
+      - "n2d"
+
+  - family: "c3"
+    category: "compute-optimized"
+    description: "Intel 4th Gen Xeon Scalable (Sapphire Rapids)"
+    machine_types:
+      - "c3-standard-4"
+      - "c3-standard-8"
+      - "c3-standard-22"
+      - "c3-standard-44"
+    equivalent_families:
+      - "c2"
+      - "c4d"
+      - "c3d"
+
+  - family: "c2"
+    category: "compute-optimized"
+    description: "Intel 2nd Gen Xeon Scalable (Cascade Lake)"
+    machine_types:
+      - "c2-standard-4"
+      - "c2-standard-8"
+      - "c2-standard-16"
+      - "c2-standard-30"
+    equivalent_families:
+      - "c3"
+      - "c4d"
+      - "c3d"
+
+  - family: "n2d"
+    category: "general-purpose"
+    description: "AMD EPYC Milan/Rome General-Purpose"
+    machine_types:
+      - "n2d-standard-4"
+      - "n2d-standard-8"
+      - "n2d-standard-16"
+      - "n2d-standard-32"
+    equivalent_families:
+      - "n2"
+      - "e2"
+      - "c3d"
+
+  - family: "n2"
+    category: "general-purpose"
+    description: "Intel Xeon Scalable Ice Lake General-Purpose"
+    machine_types:
+      - "n2-standard-4"
+      - "n2-standard-8"
+      - "n2-standard-16"
+      - "n2-standard-32"
+    equivalent_families:
+      - "n2d"
+      - "e2"
+      - "c3"
+
+  - family: "e2"
+    category: "general-purpose"
+    description: "Cost-Optimized Burstable General-Purpose"
+    machine_types:
+      - "e2-standard-4"
+      - "e2-standard-8"
+      - "e2-standard-16"
+    equivalent_families:
+      - "n2d"
+      - "n2"

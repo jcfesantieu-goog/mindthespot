@@ -1,0 +1,68 @@
+[build-system]
+requires = ["setuptools>=61.0"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "mindthespot"
+version = "0.1.0"
+description = "GCP Spot VM Regime Shift Warning & Fallback Pivot Engine"
+readme = "README.md"
+requires-python = ">=3.11"
+authors = [
+    { name = "MindTheSpot Team" }
+]
+dependencies = [
+    "fastapi>=0.110.0",
+    "uvicorn[standard]>=0.28.0",
+    "pydantic>=2.6.0",
+    "pydantic-settings>=2.2.0",
+    "pyyaml>=6.0.1",
+    "httpx[http2]>=0.27.0",
+    "google-auth>=2.28.0",
+    "google-api-python-client>=2.120.0",
+    "google-cloud-bigquery>=3.19.0",
+    "cachetools>=5.3.3",
+    "typer>=0.12.0",
+    "rich>=13.7.0",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8.1.0",
+    "pytest-asyncio>=0.23.5",
+    "pytest-mock>=3.14.0",
+    "pytest-cov>=5.0.0",
+    "ruff>=0.3.4",
+]
+
+[project.scripts]
+mindthespot = "mindthespot.cli:app"
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["mindthespot*"]
+
+[tool.ruff]
+target-version = "py311"
+line-length = 100
+
+[tool.ruff.lint]
+select = [
+    "E",   # pycodestyle errors
+    "W",   # pycodestyle warnings
+    "F",   # pyflakes
+    "I",   # isort
+    "B",   # flake8-bugbear
+    "C4",  # flake8-comprehensions
+    "UP",  # pyupgrade
+]
+ignore = [
+    "E501",  # line length handled by formatter
+]
+
+[tool.pytest.ini_options]
+minversion = "8.0"
+addopts = "-ra -q --strict-markers"
+testpaths = ["tests"]
+asyncio_mode = "auto"
+pythonpath = ["."]

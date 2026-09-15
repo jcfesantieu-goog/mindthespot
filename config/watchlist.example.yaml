@@ -1,0 +1,28 @@
+version: "1.0"
+
+watchlist:
+  - name: "Data Engineering Nightly Batch"
+    region: "europe-west4"
+    zones:
+      - "europe-west4-a"
+      - "europe-west4-b"
+    machine_types:
+      - "c4d-standard-16"
+      - "c4d-standard-32"
+    alert_threshold_z: 2.2
+    alert_threshold_delta: 0.15
+
+  - name: "GKE Spot Workers - Paris"
+    region: "europe-west9"
+    zones: []  # Automatically expands to all zones in europe-west9
+    machine_types:
+      - "c3d-standard-8"
+      - "c4a-standard-8"
+
+  - name: "ML Inference Batch - US Central"
+    region: "us-central1"
+    zones:
+      - "us-central1-a"
+      - "us-central1-b"
+    machine_types:
+      - "n2d-standard-16"

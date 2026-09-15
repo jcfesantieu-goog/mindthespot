@@ -1,0 +1,141 @@
+import React from "react";
+import { AlertTriangle, ArrowUpRight, TrendingUp, DollarSign, Shuffle, Star } from "lucide-react";
+import { AnomalyItem } from "../types";
+import { cn, formatPercent, formatPrice } from "../lib/utils";
+
+interface AnomalyCardProps {
+  anomaly: AnomalyItem;
+  onInspect: (anomaly: AnomalyItem) => void;
+  onViewPivots: (anomaly: AnomalyItem) => void;
+}
+
+export const AnomalyCard: React.FC<AnomalyCardProps> = ({
+  anomaly,
+  onInspect,
+  onViewPivots,
+}) => {
+  const isCritical = anomaly.severity === "CRITICAL";
+
+  return (
+    <div
+      className={cn(
+        "rounded-xl border p-5 transition-all duration-200 hover:shadow-lg relative overflow-hidden backdrop-blur-sm",
+        isCritical
+          ? "border-red-500/40 bg-red-950/15 hover:border-red-500/70"
+          : "border-amber-500/40 bg-amber-950/15 hover:border-amber-500/70"
+      )}
+    >
+      {/* Top Banner Accent */}
+      <div
+        className={cn(
+          "absolute top-0 left-0 right-0 h-1",
+          isCritical ? "bg-red-500" : "bg-amber-500"
+        )}
+      />
+
+      <div className="flex items-start justify-between gap-3 mb-4">
+        <div>
+          <div className="flex items-center gap-2 flex-wrap mb-1">
+            <h3 className="font-mono text-base font-bold text-slate-100 tracking-tight">
+              {anomaly.machine_type}
+            </h3>
+            <span className="text-xs px-2 py-0.5 rounded-full bg-slate-800 text-slate-300 border border-slate-700 font-mono">
+              {anomaly.family.toUpperCase()}
+            </span>
+            {anomaly.is_watchlist && (
+              <span className="flex items-center gap-1 text-xs px-2 py-0.5 rounded-full bg-amber-500/20 text-amber-300 border border-amber-500/40 font-medium">
+                <Star className="w-3 h-3 fill-amber-400" />
+                {anomaly.custom_label || "Watchlist"}
+              </span>
+            )}
+          </div>
+          <p className="text-xs text-slate-400 font-mono">
+            {anomaly.region} &bull; <span className="text-slate-300 font-semibold">{anomaly.zone}</span>
+          </p>
+        </div>
+
+        {/* Severity Badge */}
+        <div
+          className={cn(
+            "flex items-center gap-1.5 px-2.5 py-1 rounded-md text-xs font-bold uppercase tracking-wider border",
+            isCritical
+              ? "bg-red-500/20 text-red-400 border-red-500/50"
+              : "bg-amber-500/20 text-amber-400 border-amber-500/50"
+          )}
+        >
+          <AlertTriangle className="w-3.5 h-3.5" />
+          {anomaly.severity}
+        </div>
+      </div>
+
+      {/* Metric Cards Grid */}
+      <div className="grid grid-cols-2 gap-2 mb-4 text-xs">
+        <div className="bg-slate-900/60 rounded-lg p-2.5 border border-slate-800/80">
+          <div className="text-slate-400 mb-1 flex items-center justify-between">
+            <span>7d Recent Avg</span>
+            <span className={cn("font-bold font-mono", isCritical ? "text-red-400" : "text-amber-400")}>
+              +{formatPercent(anomaly.rate_delta)}
+            </span>
+          </div>
+          <div className="text-lg font-bold text-slate-100 font-mono">
+            {formatPercent(anomaly.recent_7d_rate)}
+          </div>
+          <div className="text-[10px] text-slate-400 mt-0.5">
+            Baseline: {formatPercent(anomaly.baseline_rate)}
+          </div>
+        </div>
+
+        <div className="bg-slate-900/60 rounded-lg p-2.5 border border-slate-800/80">
+          <div className="text-slate-400 mb-1 flex items-center justify-between">
+            <span>Z-Score Shift</span>
+            <TrendingUp className="w-3.5 h-3.5 text-red-400" />
+          </div>
+          <div className="text-lg font-bold text-slate-100 font-mono">
+            +{anomaly.z_score.toFixed(2)}&sigma;
+          </div>
+          <div className="text-[10px] text-slate-400 mt-0.5">
+            {anomaly.z_score >= 2.5 ? "Severe Congestion" : "Elevated Risk"}
+          </div>
+        </div>
+      </div>
+
+      {/* Price & Price Hike indicator */}
+      <div className="flex items-center justify-between text-xs py-2 px-3 rounded-lg bg-slate-900/40 border border-slate-800/60 mb-4 font-mono">
+        <div className="flex items-center gap-1.5 text-slate-300">
+          <DollarSign className="w-3.5 h-3.5 text-emerald-400" />
+          <span>Spot Price:</span>
+          <span className="font-bold text-slate-100">{formatPrice(anomaly.hourly_price)}</span>
+        </div>
+        {anomaly.price_hike_detected && (
+          <span className="flex items-center gap-1 text-[11px] text-red-400 font-semibold bg-red-950/60 px-2 py-0.5 rounded border border-red-800/40">
+            <ArrowUpRight className="w-3 h-3" />
+            +{(anomaly.price_hike_pct * 100).toFixed(0)}% Price Hike
+          </span>
+        )}
+      </div>
+
+      {/* Card Actions */}
+      <div className="flex items-center gap-2">
+        <button
+          onClick={() => onInspect(anomaly)}
+          className="flex-1 text-xs py-2 px-3 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-200 transition-colors font-medium border border-slate-700/60 text-center"
+        >
+          Inspect 30d History
+        </button>
+        <button
+          onClick={() => onViewPivots(anomaly)}
+          className={cn(
+            "flex items-center justify-center gap-1.5 text-xs py-2 px-3 rounded-lg font-semibold transition-all",
+            anomaly.pivot_count > 0
+              ? "bg-cyan-600 hover:bg-cyan-500 text-white shadow-sm shadow-cyan-900/30"
+              : "bg-slate-800 text-slate-400 cursor-not-allowed border border-slate-700"
+          )}
+          disabled={anomaly.pivot_count === 0}
+        >
+          <Shuffle className="w-3.5 h-3.5" />
+          {anomaly.pivot_count > 0 ? `Pivots (${anomaly.pivot_count})` : "No Pivots"}
+        </button>
+      </div>
+    </div>
+  );
+};
