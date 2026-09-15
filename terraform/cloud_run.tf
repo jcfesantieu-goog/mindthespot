@@ -45,11 +45,6 @@ resource "google_cloud_run_v2_service" "app" {
         name  = "BIGQUERY_DATASET_ANALYTICS"
         value = google_bigquery_dataset.analytics.dataset_id
       }
-
-      env {
-        name  = "PORT"
-        value = "8080"
-      }
     }
   }
 
