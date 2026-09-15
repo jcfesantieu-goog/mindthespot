@@ -116,11 +116,26 @@ def test_watchlist_workflow(client):
     assert len(get_res2.json()) == initial_count + 1
 
 
-def test_spa_serving():
+def test_spa_serving(tmp_path, monkeypatch):
+    import mindthespot.api.app as app_module
     from mindthespot.api.app import create_app
+
+    dist_dir = tmp_path / "dist"
+    dist_dir.mkdir()
+    index_file = dist_dir / "index.html"
+    index_file.write_text("<!doctype html><html><body>MindTheSpot Mock SPA</body></html>")
+
+    monkeypatch.setattr(app_module, "FRONTEND_DIST_DIR", dist_dir)
     new_app = create_app()
+
     with TestClient(new_app) as fresh_client:
         res = fresh_client.get("/")
         assert res.status_code == 200
         assert "<!doctype html>" in res.text
+        assert "MindTheSpot Mock SPA" in res.text
+
+        # Test SPA route fallback
+        spa_route_res = fresh_client.get("/explorer")
+        assert spa_route_res.status_code == 200
+        assert "MindTheSpot Mock SPA" in spa_route_res.text
 
