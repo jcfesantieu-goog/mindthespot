@@ -74,6 +74,24 @@ resource "google_project_iam_member" "cicd_sa_user" {
   member  = "serviceAccount:${google_service_account.cicd.email}"
 }
 
+resource "google_project_iam_member" "cicd_scheduler_admin" {
+  project = var.project_id
+  role    = "roles/cloudscheduler.admin"
+  member  = "serviceAccount:${google_service_account.cicd.email}"
+}
+
+resource "google_project_iam_member" "cicd_bigquery_admin" {
+  project = var.project_id
+  role    = "roles/bigquery.admin"
+  member  = "serviceAccount:${google_service_account.cicd.email}"
+}
+
+resource "google_project_iam_member" "cicd_storage_admin" {
+  project = var.project_id
+  role    = "roles/storage.objectAdmin"
+  member  = "serviceAccount:${google_service_account.cicd.email}"
+}
+
 # Workload Identity Pool
 resource "google_iam_workload_identity_pool" "github_pool" {
   project                   = var.project_id

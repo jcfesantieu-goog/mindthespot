@@ -15,7 +15,7 @@ concurrency:
 
 env:
   GCP_REGION: ${{ vars.GCP_REGION || 'europe-west4' }}
-  GCP_PROJECT_ID: ${{ vars.GCP_PROJECT_ID }}
+  GCP_PROJECT_ID: ${{ vars.GCP_PROJECT_ID || 'jcf-mindthespot' }}
   ARTIFACT_REGISTRY: ${{ vars.GCP_ARTIFACT_REGISTRY || 'mindthespot' }}
 
 jobs:
@@ -52,7 +52,7 @@ jobs:
           npm run build
 
   build-and-deploy:
-    name: Build Container & Deploy to Cloud Run
+    name: Build Container & Apply Declarative Terraform
     needs: [preflight-gates]
     runs-on: ubuntu-latest
     steps:
@@ -88,23 +88,19 @@ jobs:
           docker push "${IMAGE_BASE}:${SHA_TAG}"
           docker push "${IMAGE_BASE}:latest"
 
-      - name: Deploy Cloud Run Service (Web Dashboard & API)
-        env:
-          IMAGE_URI: "${{ env.GCP_REGION }}-docker.pkg.dev/${{ env.GCP_PROJECT_ID }}/${{ env.ARTIFACT_REGISTRY }}/mindthespot:${{ github.sha }}"
-        run: |
-          echo "Deploying Cloud Run Web Application..."
-          gcloud run deploy mindthespot-app \
-            --image="${IMAGE_URI}" \
-            --region="${{ env.GCP_REGION }}" \
-            --platform=managed \
-            --quiet
+      - name: Set up Terraform
+        uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: "1.9.0"
 
-      - name: Update Cloud Run Job (Ingestion Crawler)
+      - name: Apply Declarative Terraform Infrastructure
         env:
-          IMAGE_URI: "${{ env.GCP_REGION }}-docker.pkg.dev/${{ env.GCP_PROJECT_ID }}/${{ env.ARTIFACT_REGISTRY }}/mindthespot:${{ github.sha }}"
+          SHA_TAG: "${{ github.sha }}"
         run: |
-          echo "Updating Cloud Run Crawler Job container image..."
-          gcloud run jobs update mindthespot-crawler \
-            --image="${IMAGE_URI}" \
-            --region="${{ env.GCP_REGION }}" \
-            --quiet
+          cd terraform
+          terraform init
+          terraform apply \
+            -var="project_id=${{ env.GCP_PROJECT_ID }}" \
+            -var="region=${{ env.GCP_REGION }}" \
+            -var="container_image_tag=${SHA_TAG}" \
+            -auto-approve

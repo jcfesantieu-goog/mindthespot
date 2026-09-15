@@ -12,11 +12,10 @@ terraform {
     }
   }
 
-  # Uncomment to configure remote state storage in Google Cloud Storage:
-  # backend "gcs" {
-  #   bucket = "YOUR_GCS_TERRAFORM_STATE_BUCKET"
-  #   prefix = "mindthespot/state"
-  # }
+  backend "gcs" {
+    bucket = "jcf-mindthespot-tfstate"
+    prefix = "mindthespot/prod"
+  }
 }
 
 provider "google" {
