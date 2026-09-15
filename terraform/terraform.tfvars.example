@@ -46,6 +46,9 @@ enable_iap          = false
 iap_client_id       = ""
 iap_client_secret   = ""
 iap_allowed_members = [
-  "domain:jcfesantieu.altostrat.com"
+  "domain:jcfesantieu.altostrat.com",
+  "user:sre@jcfesantieu.altostrat.com",
+  "user:jcfesantieu@google.com"
 ]
+
 
