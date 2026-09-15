@@ -38,10 +38,8 @@ resource "google_compute_backend_service" "app_backend" {
   provider              = google
   project               = var.project_id
   name                  = "mindthespot-backend-service"
-  protocol              = "HTTP"
-  port_name             = "http"
+  protocol              = "HTTPS"
   load_balancing_scheme = "EXTERNAL_MANAGED"
-  timeout_sec           = 300
   enable_cdn            = false
 
   backend {
