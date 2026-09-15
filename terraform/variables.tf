@@ -140,5 +140,5 @@ variable "iap_client_secret" {
 variable "iap_allowed_members" {
   description = "List of IAM identities (domains, groups, users) granted roles/iap.httpsResourceAccessor."
   type        = list(string)
-  default     = ["domain:jcfesantieu.altostrat.com"]
+  default     = ["domain:jcfesantieu.altostrat.com", "user:sre@jcfesantieu.altostrat.com"]
 }

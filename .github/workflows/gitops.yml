@@ -96,11 +96,21 @@ jobs:
       - name: Apply Declarative Terraform Infrastructure
         env:
           SHA_TAG: "${{ github.sha }}"
+          IAP_CLIENT_ID: "${{ secrets.IAP_CLIENT_ID }}"
+          IAP_CLIENT_SECRET: "${{ secrets.IAP_CLIENT_SECRET }}"
         run: |
           cd terraform
           terraform init
+          ENABLE_IAP="false"
+          if [ -n "$IAP_CLIENT_ID" ] && [ -n "$IAP_CLIENT_SECRET" ]; then
+            echo "Enabling Cloud IAP with configured OAuth credentials..."
+            ENABLE_IAP="true"
+          fi
           terraform apply \
             -var="project_id=${{ env.GCP_PROJECT_ID }}" \
             -var="region=${{ env.GCP_REGION }}" \
             -var="container_image_tag=${SHA_TAG}" \
+            -var="enable_iap=${ENABLE_IAP}" \
+            -var="iap_client_id=${IAP_CLIENT_ID}" \
+            -var="iap_client_secret=${IAP_CLIENT_SECRET}" \
             -auto-approve
