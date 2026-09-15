@@ -102,26 +102,21 @@ def crawl(
                 f"{len(price_records)} price records to BigQuery [{project}.{dataset}]...[/bold cyan]"
             )
             from mindthespot.storage.bigquery_client import BigQueryStorageClient
+            from mindthespot.storage.schemas import (
+                transform_preemption_records_to_rows,
+                transform_price_records_to_rows,
+            )
 
             storage = BigQueryStorageClient(project=project, dataset=dataset)
             storage.ensure_dataset_and_tables()
-            p_rows = [r.model_dump() for r in preempt_records]
-            pr_rows = [r.model_dump() for r in price_records]
-            # Convert dates and intervals to JSON-serializable strings
-            for r in p_rows:
-                r["snapshot_date"] = str(r["snapshot_date"])
-                r["date"] = str(r["date"])
-            for r in pr_rows:
-                r["snapshot_date"] = str(r["snapshot_date"])
-                r["start_time"] = str(r["start_time"])
-                if r.get("end_time"):
-                    r["end_time"] = str(r["end_time"])
+            p_rows = transform_preemption_records_to_rows(preempt_records)
+            pr_rows = transform_price_records_to_rows(price_records)
 
             p_count = storage.insert_preemption_rows(p_rows)
             pr_count = storage.insert_price_rows(pr_rows)
             console.print(
-                f"[bold green]✅ Successfully persisted {p_count} preemption records and "
-                f"{pr_count} price records into BigQuery.[/bold green]"
+                f"[bold green]✅ Successfully persisted {p_count} preemption rows and "
+                f"{pr_count} price rows into BigQuery.[/bold green]"
             )
         elif dry_run or output == "console":
             console.print(
