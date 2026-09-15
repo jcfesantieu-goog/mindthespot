@@ -100,7 +100,7 @@ variable "github_repository" {
 }
 
 variable "enable_public_access" {
-  description = "Whether to allow unauthenticated public web traffic to the Cloud Run dashboard service."
+  description = "Allow unauthenticated public access (allUsers) to Cloud Run application service. Disable in orgs enforcing domain restricted sharing."
   type        = bool
-  default     = true
+  default     = false
 }

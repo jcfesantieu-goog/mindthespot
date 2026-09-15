@@ -35,4 +35,4 @@ app_memory        = "1Gi"
 github_repository = "jcfesantieu-goog/mindthespot"
 
 # Public Access to Cloud Run Web Dashboard
-enable_public_access = true
+enable_public_access = false
