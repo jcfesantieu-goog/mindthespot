@@ -116,6 +116,24 @@ resource "google_project_iam_member" "cicd_security_admin" {
   member  = "serviceAccount:${google_service_account.cicd.email}"
 }
 
+resource "google_project_iam_member" "cicd_network_admin" {
+  project = var.project_id
+  role    = "roles/compute.networkAdmin"
+  member  = "serviceAccount:${google_service_account.cicd.email}"
+}
+
+resource "google_project_iam_member" "cicd_lb_admin" {
+  project = var.project_id
+  role    = "roles/compute.loadBalancerAdmin"
+  member  = "serviceAccount:${google_service_account.cicd.email}"
+}
+
+resource "google_project_iam_member" "cicd_iap_admin" {
+  project = var.project_id
+  role    = "roles/iap.admin"
+  member  = "serviceAccount:${google_service_account.cicd.email}"
+}
+
 # Workload Identity Pool
 resource "google_iam_workload_identity_pool" "github_pool" {
   project                   = var.project_id
