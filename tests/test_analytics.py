@@ -76,6 +76,10 @@ def test_equivalent_families_matrix():
     assert "n2d" in EQUIVALENT_FAMILIES_MAP["c4d"]
     assert "c4d" in EQUIVALENT_FAMILIES_MAP["c3d"]
     assert "c2" in EQUIVALENT_FAMILIES_MAP["c3"]
+    assert "c3" in EQUIVALENT_FAMILIES_MAP["n4"]
+    assert "t2a" in EQUIVALENT_FAMILIES_MAP["t2d"]
+    assert "t2d" in EQUIVALENT_FAMILIES_MAP["t2a"]
+
 
 
 def test_find_pivot_candidates_for_congested_pool():

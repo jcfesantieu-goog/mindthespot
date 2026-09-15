@@ -1,151 +1,402 @@
-version: "1.0"
-
+version: '1.0'
 regions:
-  - region: "europe-west4"
-    description: "Netherlands (Eemshaven)"
-    zones:
-      - "europe-west4-a"
-      - "europe-west4-b"
-      - "europe-west4-c"
-
-  - region: "europe-west1"
-    description: "Belgium (St. Ghislain)"
-    zones:
-      - "europe-west1-b"
-      - "europe-west1-c"
-      - "europe-west1-d"
-
-  - region: "europe-west9"
-    description: "France (Paris)"
-    zones:
-      - "europe-west9-a"
-      - "europe-west9-b"
-      - "europe-west9-c"
-
-  - region: "us-central1"
-    description: "US Central (Iowa)"
-    zones:
-      - "us-central1-a"
-      - "us-central1-b"
-      - "us-central1-c"
-      - "us-central1-f"
-
-  - region: "us-east4"
-    description: "US East (Northern Virginia)"
-    zones:
-      - "us-east4-a"
-      - "us-east4-b"
-      - "us-east4-c"
-
-  - region: "us-west1"
-    description: "US West (Oregon)"
-    zones:
-      - "us-west1-a"
-      - "us-west1-b"
-      - "us-west1-c"
-
+- region: africa-south1
+  description: South Africa (Johannesburg)
+  zones:
+  - africa-south1-a
+  - africa-south1-b
+  - africa-south1-c
+- region: asia-east1
+  description: Taiwan (Changhua County)
+  zones:
+  - asia-east1-a
+  - asia-east1-b
+  - asia-east1-c
+- region: asia-east2
+  description: Hong Kong
+  zones:
+  - asia-east2-a
+  - asia-east2-b
+  - asia-east2-c
+- region: asia-northeast1
+  description: Japan (Tokyo)
+  zones:
+  - asia-northeast1-a
+  - asia-northeast1-b
+  - asia-northeast1-c
+- region: asia-northeast2
+  description: Japan (Osaka)
+  zones:
+  - asia-northeast2-a
+  - asia-northeast2-b
+  - asia-northeast2-c
+- region: asia-northeast3
+  description: South Korea (Seoul)
+  zones:
+  - asia-northeast3-a
+  - asia-northeast3-b
+  - asia-northeast3-c
+- region: asia-south1
+  description: India (Mumbai)
+  zones:
+  - asia-south1-a
+  - asia-south1-b
+  - asia-south1-c
+- region: asia-south2
+  description: India (Delhi)
+  zones:
+  - asia-south2-a
+  - asia-south2-b
+  - asia-south2-c
+- region: asia-southeast1
+  description: Singapore (Jurong West)
+  zones:
+  - asia-southeast1-a
+  - asia-southeast1-b
+  - asia-southeast1-c
+- region: asia-southeast2
+  description: Indonesia (Jakarta)
+  zones:
+  - asia-southeast2-a
+  - asia-southeast2-b
+  - asia-southeast2-c
+- region: asia-southeast3
+  description: Malaysia (Kuala Lumpur)
+  zones:
+  - asia-southeast3-a
+  - asia-southeast3-b
+  - asia-southeast3-c
+- region: australia-southeast1
+  description: Australia (Sydney)
+  zones:
+  - australia-southeast1-a
+  - australia-southeast1-b
+  - australia-southeast1-c
+- region: australia-southeast2
+  description: Australia (Melbourne)
+  zones:
+  - australia-southeast2-a
+  - australia-southeast2-b
+  - australia-southeast2-c
+- region: europe-central2
+  description: Poland (Warsaw)
+  zones:
+  - europe-central2-a
+  - europe-central2-b
+  - europe-central2-c
+- region: europe-north1
+  description: Finland (Hamina)
+  zones:
+  - europe-north1-a
+  - europe-north1-b
+  - europe-north1-c
+- region: europe-north2
+  description: Sweden (Stockholm)
+  zones:
+  - europe-north2-a
+  - europe-north2-b
+  - europe-north2-c
+- region: europe-southwest1
+  description: Spain (Madrid)
+  zones:
+  - europe-southwest1-a
+  - europe-southwest1-b
+  - europe-southwest1-c
+- region: europe-west1
+  description: Belgium (St. Ghislain)
+  zones:
+  - europe-west1-b
+  - europe-west1-c
+  - europe-west1-d
+- region: europe-west10
+  description: Germany (Berlin)
+  zones:
+  - europe-west10-a
+  - europe-west10-b
+  - europe-west10-c
+- region: europe-west12
+  description: Italy (Turin)
+  zones:
+  - europe-west12-a
+  - europe-west12-b
+  - europe-west12-c
+- region: europe-west2
+  description: United Kingdom (London)
+  zones:
+  - europe-west2-a
+  - europe-west2-b
+  - europe-west2-c
+- region: europe-west3
+  description: Germany (Frankfurt)
+  zones:
+  - europe-west3-a
+  - europe-west3-b
+  - europe-west3-c
+- region: europe-west4
+  description: Netherlands (Eemshaven)
+  zones:
+  - europe-west4-a
+  - europe-west4-b
+  - europe-west4-c
+- region: europe-west6
+  description: Switzerland (Zurich)
+  zones:
+  - europe-west6-a
+  - europe-west6-b
+  - europe-west6-c
+- region: europe-west8
+  description: Italy (Milan)
+  zones:
+  - europe-west8-a
+  - europe-west8-b
+  - europe-west8-c
+- region: europe-west9
+  description: France (Paris)
+  zones:
+  - europe-west9-a
+  - europe-west9-b
+  - europe-west9-c
+- region: me-central1
+  description: Qatar (Doha)
+  zones:
+  - me-central1-a
+  - me-central1-b
+  - me-central1-c
+- region: me-central2
+  description: Saudi Arabia (Dammam)
+  zones:
+  - me-central2-a
+  - me-central2-b
+  - me-central2-c
+- region: me-west1
+  description: Israel (Tel Aviv)
+  zones:
+  - me-west1-a
+  - me-west1-b
+  - me-west1-c
+- region: northamerica-northeast1
+  description: Canada (Montreal)
+  zones:
+  - northamerica-northeast1-a
+  - northamerica-northeast1-b
+  - northamerica-northeast1-c
+- region: northamerica-northeast2
+  description: Canada (Toronto)
+  zones:
+  - northamerica-northeast2-a
+  - northamerica-northeast2-b
+  - northamerica-northeast2-c
+- region: northamerica-south1
+  description: "Mexico (Quer\xE9taro)"
+  zones:
+  - northamerica-south1-a
+  - northamerica-south1-b
+  - northamerica-south1-c
+- region: southamerica-east1
+  description: "Brazil (S\xE3o Paulo)"
+  zones:
+  - southamerica-east1-a
+  - southamerica-east1-b
+  - southamerica-east1-c
+- region: southamerica-west1
+  description: Chile (Santiago)
+  zones:
+  - southamerica-west1-a
+  - southamerica-west1-b
+  - southamerica-west1-c
+- region: us-central1
+  description: US Central (Iowa)
+  zones:
+  - us-central1-a
+  - us-central1-b
+  - us-central1-c
+  - us-central1-f
+- region: us-east1
+  description: US East (South Carolina)
+  zones:
+  - us-east1-b
+  - us-east1-c
+  - us-east1-d
+- region: us-east4
+  description: US East (Northern Virginia)
+  zones:
+  - us-east4-a
+  - us-east4-b
+  - us-east4-c
+- region: us-east5
+  description: US East (Columbus)
+  zones:
+  - us-east5-a
+  - us-east5-b
+  - us-east5-c
+- region: us-south1
+  description: US South (Dallas)
+  zones:
+  - us-south1-a
+  - us-south1-b
+  - us-south1-c
+- region: us-west1
+  description: US West (Oregon)
+  zones:
+  - us-west1-a
+  - us-west1-b
+  - us-west1-c
+- region: us-west2
+  description: US West (Los Angeles)
+  zones:
+  - us-west2-a
+  - us-west2-b
+  - us-west2-c
+- region: us-west3
+  description: US West (Salt Lake City)
+  zones:
+  - us-west3-a
+  - us-west3-b
+  - us-west3-c
+- region: us-west4
+  description: US West (Las Vegas)
+  zones:
+  - us-west4-a
+  - us-west4-b
+  - us-west4-c
 families:
-  - family: "c4d"
-    category: "compute-optimized"
-    description: "AMD Turin (5th Gen EPYC) Compute-Optimized"
-    machine_types:
-      - "c4d-standard-4"
-      - "c4d-standard-8"
-      - "c4d-standard-16"
-      - "c4d-standard-32"
-      - "c4d-standard-64"
-    equivalent_families:
-      - "c3d"
-      - "c4a"
-      - "n2d"
-
-  - family: "c3d"
-    category: "compute-optimized"
-    description: "AMD Genoa (4th Gen EPYC) Compute-Optimized"
-    machine_types:
-      - "c3d-standard-4"
-      - "c3d-standard-8"
-      - "c3d-standard-16"
-      - "c3d-standard-30"
-      - "c3d-standard-60"
-    equivalent_families:
-      - "c4d"
-      - "c4a"
-      - "n2d"
-
-  - family: "c4a"
-    category: "compute-optimized"
-    description: "Google Axion (Arm Neoverse-V2) Compute-Optimized"
-    machine_types:
-      - "c4a-standard-4"
-      - "c4a-standard-8"
-      - "c4a-standard-16"
-      - "c4a-standard-32"
-      - "c4a-standard-48"
-    equivalent_families:
-      - "c4d"
-      - "c3d"
-      - "n2d"
-
-  - family: "c3"
-    category: "compute-optimized"
-    description: "Intel 4th Gen Xeon Scalable (Sapphire Rapids)"
-    machine_types:
-      - "c3-standard-4"
-      - "c3-standard-8"
-      - "c3-standard-22"
-      - "c3-standard-44"
-    equivalent_families:
-      - "c2"
-      - "c4d"
-      - "c3d"
-
-  - family: "c2"
-    category: "compute-optimized"
-    description: "Intel 2nd Gen Xeon Scalable (Cascade Lake)"
-    machine_types:
-      - "c2-standard-4"
-      - "c2-standard-8"
-      - "c2-standard-16"
-      - "c2-standard-30"
-    equivalent_families:
-      - "c3"
-      - "c4d"
-      - "c3d"
-
-  - family: "n2d"
-    category: "general-purpose"
-    description: "AMD EPYC Milan/Rome General-Purpose"
-    machine_types:
-      - "n2d-standard-4"
-      - "n2d-standard-8"
-      - "n2d-standard-16"
-      - "n2d-standard-32"
-    equivalent_families:
-      - "n2"
-      - "e2"
-      - "c3d"
-
-  - family: "n2"
-    category: "general-purpose"
-    description: "Intel Xeon Scalable Ice Lake General-Purpose"
-    machine_types:
-      - "n2-standard-4"
-      - "n2-standard-8"
-      - "n2-standard-16"
-      - "n2-standard-32"
-    equivalent_families:
-      - "n2d"
-      - "e2"
-      - "c3"
-
-  - family: "e2"
-    category: "general-purpose"
-    description: "Cost-Optimized Burstable General-Purpose"
-    machine_types:
-      - "e2-standard-4"
-      - "e2-standard-8"
-      - "e2-standard-16"
-    equivalent_families:
-      - "n2d"
-      - "n2"
+- family: c4d
+  category: compute-optimized
+  description: AMD Turin (5th Gen EPYC) Compute-Optimized
+  machine_types:
+  - c4d-standard-4
+  - c4d-standard-8
+  - c4d-standard-16
+  - c4d-standard-32
+  - c4d-standard-64
+  equivalent_families:
+  - c3d
+  - c4a
+  - n2d
+- family: c3d
+  category: compute-optimized
+  description: AMD Genoa (4th Gen EPYC) Compute-Optimized
+  machine_types:
+  - c3d-standard-4
+  - c3d-standard-8
+  - c3d-standard-16
+  - c3d-standard-30
+  - c3d-standard-60
+  equivalent_families:
+  - c4d
+  - c4a
+  - n2d
+- family: c4a
+  category: compute-optimized
+  description: Google Axion (Arm Neoverse-V2) Compute-Optimized
+  machine_types:
+  - c4a-standard-4
+  - c4a-standard-8
+  - c4a-standard-16
+  - c4a-standard-32
+  - c4a-standard-48
+  equivalent_families:
+  - c4d
+  - c3d
+  - n2d
+- family: c3
+  category: compute-optimized
+  description: Intel 4th Gen Xeon Scalable (Sapphire Rapids)
+  machine_types:
+  - c3-standard-4
+  - c3-standard-8
+  - c3-standard-22
+  - c3-standard-44
+  equivalent_families:
+  - c2
+  - c4d
+  - c3d
+  - n4
+- family: c2
+  category: compute-optimized
+  description: Intel 2nd Gen Xeon Scalable (Cascade Lake)
+  machine_types:
+  - c2-standard-4
+  - c2-standard-8
+  - c2-standard-16
+  - c2-standard-30
+  equivalent_families:
+  - c3
+  - c4d
+  - c3d
+- family: n4
+  category: general-purpose
+  description: Intel 5th Gen Xeon Scalable (Emerald Rapids) General-Purpose
+  machine_types:
+  - n4-standard-4
+  - n4-standard-8
+  - n4-standard-16
+  - n4-standard-32
+  - n4-standard-48
+  - n4-standard-64
+  equivalent_families:
+  - c3
+  - c3d
+  - n2d
+  - n2
+- family: n2d
+  category: general-purpose
+  description: AMD EPYC Milan/Rome General-Purpose
+  machine_types:
+  - n2d-standard-4
+  - n2d-standard-8
+  - n2d-standard-16
+  - n2d-standard-32
+  equivalent_families:
+  - n2
+  - e2
+  - c3d
+  - n4
+- family: n2
+  category: general-purpose
+  description: Intel Xeon Scalable Ice Lake General-Purpose
+  machine_types:
+  - n2-standard-4
+  - n2-standard-8
+  - n2-standard-16
+  - n2-standard-32
+  equivalent_families:
+  - n2d
+  - e2
+  - c3
+  - n4
+- family: t2d
+  category: general-purpose
+  description: AMD EPYC Milan Scale-Out General-Purpose
+  machine_types:
+  - t2d-standard-4
+  - t2d-standard-8
+  - t2d-standard-16
+  - t2d-standard-32
+  equivalent_families:
+  - t2a
+  - n2d
+  - e2
+- family: t2a
+  category: general-purpose
+  description: Ampere Altra Arm General-Purpose
+  machine_types:
+  - t2a-standard-4
+  - t2a-standard-8
+  - t2a-standard-16
+  - t2a-standard-32
+  equivalent_families:
+  - t2d
+  - c4a
+  - n2d
+- family: e2
+  category: general-purpose
+  description: Cost-Optimized Burstable General-Purpose
+  machine_types:
+  - e2-standard-4
+  - e2-standard-8
+  - e2-standard-16
+  equivalent_families:
+  - n2d
+  - n2
+  - t2d

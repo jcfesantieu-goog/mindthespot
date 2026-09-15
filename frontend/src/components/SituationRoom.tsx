@@ -54,7 +54,7 @@ export const SituationRoom: React.FC<SituationRoomProps> = ({
           <div>
             <div className="text-xs text-slate-400 font-mono mb-1">Monitored Pools</div>
             <div className="text-2xl font-bold font-mono text-slate-100">{totalPoolsCount}</div>
-            <div className="text-[11px] text-slate-500 font-mono mt-0.5">8 Curated Families</div>
+            <div className="text-[11px] text-slate-500 font-mono mt-0.5">11 Tier-1 Families &bull; 43 Regions</div>
           </div>
           <div className="p-3 rounded-xl bg-slate-800 text-slate-300">
             <Layers className="w-5 h-5" />

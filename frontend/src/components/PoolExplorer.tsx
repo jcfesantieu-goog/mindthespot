@@ -1,5 +1,5 @@
 import React, { useState } from "react";
-import { Search, Star, Shuffle, Eye } from "lucide-react";
+import { Search, Star, Shuffle, Eye, ChevronLeft, ChevronRight } from "lucide-react";
 import { PoolSummary } from "../types";
 import { cn, formatPercent, formatPrice } from "../lib/utils";
 
@@ -18,17 +18,39 @@ export const PoolExplorer: React.FC<PoolExplorerProps> = ({
   const [selectedRegion, setSelectedRegion] = useState<string>("ALL");
   const [selectedFamily, setSelectedFamily] = useState<string>("ALL");
   const [watchlistOnly, setWatchlistOnly] = useState<boolean>(false);
+  const [currentPage, setCurrentPage] = useState<number>(1);
+  const [pageSize, setPageSize] = useState<number>(50);
 
-  const families = ["ALL", "c4d", "c3d", "c4a", "c3", "c2", "n2d", "n2", "e2"];
+  // Dynamically extract unique regions and families from loaded pools
   const regions = [
     "ALL",
-    "europe-west4",
-    "europe-west1",
-    "europe-west9",
-    "us-central1",
-    "us-east4",
-    "us-west1",
+    ...Array.from(new Set(pools.map((p) => p.region))).sort(),
   ];
+
+  const families = [
+    "ALL",
+    ...Array.from(new Set(pools.map((p) => p.family))).sort(),
+  ];
+
+  const handleSearchChange = (val: string) => {
+    setSearchTerm(val);
+    setCurrentPage(1);
+  };
+
+  const handleRegionChange = (reg: string) => {
+    setSelectedRegion(reg);
+    setCurrentPage(1);
+  };
+
+  const handleFamilyChange = (fam: string) => {
+    setSelectedFamily(fam);
+    setCurrentPage(1);
+  };
+
+  const handleWatchlistToggle = () => {
+    setWatchlistOnly(!watchlistOnly);
+    setCurrentPage(1);
+  };
 
   const filteredPools = pools.filter((p) => {
     if (watchlistOnly && !p.is_watchlist) return false;
@@ -38,11 +60,22 @@ export const PoolExplorer: React.FC<PoolExplorerProps> = ({
       const q = searchTerm.toLowerCase();
       return (
         p.pool_key.toLowerCase().includes(q) ||
-        (p.custom_label || "").toLowerCase().includes(q)
+        (p.custom_label || "").toLowerCase().includes(q) ||
+        p.region.toLowerCase().includes(q) ||
+        p.zone.toLowerCase().includes(q) ||
+        p.family.toLowerCase().includes(q)
       );
     }
     return true;
   });
+
+  // Client-side pagination calculation to prevent DOM overload
+  const totalItems = filteredPools.length;
+  const totalPages = Math.max(1, Math.ceil(totalItems / pageSize));
+  const activePage = Math.min(currentPage, totalPages);
+  const startIdx = totalItems === 0 ? 0 : (activePage - 1) * pageSize;
+  const endIdx = Math.min(startIdx + pageSize, totalItems);
+  const paginatedPools = filteredPools.slice(startIdx, endIdx);
 
   return (
     <div className="space-y-4">
@@ -53,9 +86,9 @@ export const PoolExplorer: React.FC<PoolExplorerProps> = ({
           <Search className="w-4 h-4 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2" />
           <input
             type="text"
-            placeholder="Search by instance, zone, or custom workload label..."
+            placeholder="Search by instance, zone, region, or custom workload label..."
             value={searchTerm}
-            onChange={(e) => setSearchTerm(e.target.value)}
+            onChange={(e) => handleSearchChange(e.target.value)}
             className="w-full bg-slate-950 border border-slate-800 rounded-lg pl-9 pr-3 py-2 text-xs font-mono text-slate-100 placeholder-slate-500 focus:outline-none focus:border-cyan-500"
           />
         </div>
@@ -65,12 +98,12 @@ export const PoolExplorer: React.FC<PoolExplorerProps> = ({
           <label className="text-xs text-slate-400 font-mono">Region:</label>
           <select
             value={selectedRegion}
-            onChange={(e) => setSelectedRegion(e.target.value)}
-            className="bg-slate-950 border border-slate-800 rounded-lg px-3 py-2 text-xs font-mono text-slate-200 focus:outline-none focus:border-cyan-500"
+            onChange={(e) => handleRegionChange(e.target.value)}
+            className="bg-slate-950 border border-slate-800 rounded-lg px-3 py-2 text-xs font-mono text-slate-200 focus:outline-none focus:border-cyan-500 max-w-[200px]"
           >
             {regions.map((r) => (
               <option key={r} value={r}>
-                {r === "ALL" ? "All Regions" : r}
+                {r === "ALL" ? `All Regions (${regions.length - 1})` : r}
               </option>
             ))}
           </select>
@@ -78,7 +111,7 @@ export const PoolExplorer: React.FC<PoolExplorerProps> = ({
 
         {/* Watchlist Toggle */}
         <button
-          onClick={() => setWatchlistOnly(!watchlistOnly)}
+          onClick={handleWatchlistToggle}
           className={cn(
             "flex items-center gap-1.5 px-3 py-2 rounded-lg text-xs font-medium transition-colors border",
             watchlistOnly
@@ -99,9 +132,9 @@ export const PoolExplorer: React.FC<PoolExplorerProps> = ({
         {families.map((fam) => (
           <button
             key={fam}
-            onClick={() => setSelectedFamily(fam)}
+            onClick={() => handleFamilyChange(fam)}
             className={cn(
-              "px-3 py-1 rounded-md transition-all font-semibold uppercase tracking-wider",
+              "px-3 py-1 rounded-md transition-all font-semibold uppercase tracking-wider whitespace-nowrap",
               selectedFamily === fam
                 ? "bg-cyan-500/20 text-cyan-300 border border-cyan-500/50 shadow-sm shadow-cyan-900/30"
                 : "bg-slate-900 text-slate-400 border border-slate-800 hover:text-slate-200 hover:bg-slate-850"
@@ -129,14 +162,14 @@ export const PoolExplorer: React.FC<PoolExplorerProps> = ({
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-800/60">
-              {filteredPools.length === 0 ? (
+              {paginatedPools.length === 0 ? (
                 <tr>
                   <td colSpan={8} className="py-8 text-center text-slate-500 font-sans">
                     No instance pools match the selected filters.
                   </td>
                 </tr>
               ) : (
-                filteredPools.map((pool) => {
+                paginatedPools.map((pool) => {
                   const isCritical = pool.severity === "CRITICAL";
                   const isElevated = pool.severity === "ELEVATED";
 
@@ -225,8 +258,59 @@ export const PoolExplorer: React.FC<PoolExplorerProps> = ({
             </tbody>
           </table>
         </div>
-        <div className="px-4 py-2.5 bg-slate-950/60 border-t border-slate-800 text-[11px] text-slate-400 flex items-center justify-between font-mono">
-          <span>Showing {filteredPools.length} of {pools.length} active instance pools</span>
+
+        {/* Pagination & Summary Footer */}
+        <div className="px-4 py-3 bg-slate-950/60 border-t border-slate-800 text-xs text-slate-400 flex flex-col sm:flex-row items-center justify-between gap-3 font-mono">
+          <div className="flex items-center gap-2">
+            <span>
+              Showing {totalItems === 0 ? 0 : startIdx + 1}–{endIdx} of{" "}
+              <strong className="text-slate-200">{totalItems}</strong> matching pools (from{" "}
+              {pools.length} total across {regions.length - 1} regions)
+            </span>
+          </div>
+
+          <div className="flex items-center gap-4">
+            {/* Rows per page selector */}
+            <div className="flex items-center gap-1.5">
+              <span className="text-[11px] text-slate-500">Rows:</span>
+              <select
+                value={pageSize}
+                onChange={(e) => {
+                  setPageSize(Number(e.target.value));
+                  setCurrentPage(1);
+                }}
+                className="bg-slate-900 border border-slate-800 rounded px-2 py-1 text-xs text-slate-300 focus:outline-none focus:border-cyan-500"
+              >
+                <option value={25}>25</option>
+                <option value={50}>50</option>
+                <option value={100}>100</option>
+                <option value={250}>250</option>
+              </select>
+            </div>
+
+            {/* Page navigation controls */}
+            <div className="flex items-center gap-1.5">
+              <button
+                onClick={() => setCurrentPage((p) => Math.max(1, p - 1))}
+                disabled={activePage <= 1}
+                className="p-1 rounded bg-slate-900 border border-slate-800 text-slate-400 hover:text-slate-100 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+                title="Previous Page"
+              >
+                <ChevronLeft className="w-4 h-4" />
+              </button>
+              <span className="text-[11px] px-1 text-slate-300">
+                Page {activePage} of {totalPages}
+              </span>
+              <button
+                onClick={() => setCurrentPage((p) => Math.min(totalPages, p + 1))}
+                disabled={activePage >= totalPages}
+                className="p-1 rounded bg-slate-900 border border-slate-800 text-slate-400 hover:text-slate-100 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+                title="Next Page"
+              >
+                <ChevronRight className="w-4 h-4" />
+              </button>
+            </div>
+          </div>
         </div>
       </div>
     </div>

@@ -32,8 +32,8 @@ def test_default_catalog_loads_and_contains_required_families():
     catalog = load_catalog(DEFAULT_CATALOG_PATH)
 
     assert catalog.version == "1.0"
-    assert len(catalog.regions) >= 4
-    assert len(catalog.families) >= 6
+    assert len(catalog.regions) == 43
+    assert len(catalog.families) == 11
 
     # Verify key instance families from requirements
     family_names = {f.family for f in catalog.families}
@@ -42,8 +42,11 @@ def test_default_catalog_loads_and_contains_required_families():
     assert "c4a" in family_names
     assert "c3" in family_names
     assert "c2" in family_names
+    assert "n4" in family_names
     assert "n2d" in family_names
     assert "n2" in family_names
+    assert "t2d" in family_names
+    assert "t2a" in family_names
     assert "e2" in family_names
 
     # Verify equivalent families mapping exists
