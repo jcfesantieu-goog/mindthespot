@@ -5,6 +5,7 @@ from typing import Annotated
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 
+from mindthespot.api.auth import UserContext, get_current_user_context
 from mindthespot.api.schemas import (
     AnomalyResponse,
     HealthResponse,
@@ -143,3 +144,12 @@ def add_watchlist_entry(
         "message": f"Added {len(added_keys)} pool targets to watchlist",
         "targets": added_keys,
     }
+
+
+@router.get("/v1/auth/me", response_model=UserContext, tags=["Authentication"])
+def get_authenticated_user(
+    user: Annotated[UserContext, Depends(get_current_user_context)],
+) -> UserContext:
+    """Retrieve the current user's authenticated identity from Cloud IAP."""
+    return user
+

@@ -139,3 +139,25 @@ def test_spa_serving(tmp_path, monkeypatch):
         assert spa_route_res.status_code == 200
         assert "MindTheSpot Mock SPA" in spa_route_res.text
 
+
+def test_auth_me_default_dev_mode(client):
+    res = client.get("/api/v1/auth/me")
+    assert res.status_code == 200
+    data = res.json()
+    assert data["email"] == "dev@mindthespot.internal"
+    assert data["is_authenticated"] is False
+
+
+def test_auth_me_with_iap_headers(client):
+    headers = {
+        "x-goog-authenticated-user-email": "accounts.google.com:sre@jcfesantieu.altostrat.com",
+        "x-goog-authenticated-user-id": "123456789",
+    }
+    res = client.get("/api/v1/auth/me", headers=headers)
+    assert res.status_code == 200
+    data = res.json()
+    assert data["email"] == "sre@jcfesantieu.altostrat.com"
+    assert data["user_id"] == "123456789"
+    assert data["is_authenticated"] is True
+
+

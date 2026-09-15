@@ -6,13 +6,16 @@ import {
   RefreshCw,
   Radio,
   ExternalLink,
+  UserCheck,
 } from "lucide-react";
 import { AnomalyItem, PivotCandidate, PoolSummary, WatchlistEntry } from "./types";
 import {
   fetchAnomalies,
+  fetchCurrentUser,
   fetchPivots,
   fetchPools,
   fetchWatchlist,
+  UserContextResponse,
 } from "./lib/api";
 import { SituationRoom } from "./components/SituationRoom";
 import { PoolExplorer } from "./components/PoolExplorer";
@@ -28,6 +31,7 @@ export const App: React.FC = () => {
   const [anomalies, setAnomalies] = useState<AnomalyItem[]>([]);
   const [pools, setPools] = useState<PoolSummary[]>([]);
   const [watchlist, setWatchlist] = useState<WatchlistEntry[]>([]);
+  const [userContext, setUserContext] = useState<UserContextResponse | null>(null);
   const [loading, setLoading] = useState(true);
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [lastRefreshed, setLastRefreshed] = useState<string>("");
@@ -48,14 +52,16 @@ export const App: React.FC = () => {
   const loadAllData = async () => {
     setIsRefreshing(true);
     try {
-      const [anomData, poolData, watchData] = await Promise.all([
+      const [anomData, poolData, watchData, userData] = await Promise.all([
         fetchAnomalies(),
         fetchPools(),
         fetchWatchlist(),
+        fetchCurrentUser(),
       ]);
       setAnomalies(anomData);
       setPools(poolData);
       setWatchlist(watchData);
+      setUserContext(userData);
       setLastRefreshed(new Date().toLocaleTimeString());
     } catch (err) {
       console.error("Error loading MindTheSpot data:", err);
@@ -161,8 +167,23 @@ export const App: React.FC = () => {
             </button>
           </nav>
 
-          {/* Status & Refresh */}
+          {/* Status & User & Refresh */}
           <div className="flex items-center gap-3">
+            {userContext && (
+              <div
+                className={cn(
+                  "hidden md:flex items-center gap-1.5 px-2.5 py-1 rounded-lg border text-xs font-mono",
+                  userContext.is_authenticated
+                    ? "bg-emerald-500/10 text-emerald-300 border-emerald-500/30"
+                    : "bg-slate-900/80 text-slate-400 border-slate-800"
+                )}
+                title={userContext.is_authenticated ? "Authenticated via Cloud IAP" : "Local Development Mode"}
+              >
+                <UserCheck className={cn("w-3.5 h-3.5", userContext.is_authenticated ? "text-emerald-400" : "text-slate-500")} />
+                <span className="truncate max-w-[150px]">{userContext.email}</span>
+              </div>
+            )}
+
             <div className="hidden lg:flex items-center gap-2 text-[11px] font-mono text-slate-400">
               <span className="w-2 h-2 rounded-full bg-emerald-400" />
               <span>Live Engine (15m Cache)</span>

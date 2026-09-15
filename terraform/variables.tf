@@ -104,3 +104,41 @@ variable "enable_public_access" {
   type        = bool
   default     = false
 }
+
+variable "enable_load_balancer" {
+  description = "Deploy a Global External HTTPS Load Balancer with Serverless NEG in front of Cloud Run."
+  type        = bool
+  default     = true
+}
+
+variable "domain_name" {
+  description = "Custom domain name for the Load Balancer SSL certificate. Leave empty to auto-generate a wildcard dynamic domain via sslip.io."
+  type        = string
+  default     = ""
+}
+
+variable "enable_iap" {
+  description = "Enable Google Cloud Identity-Aware Proxy (IAP) authentication on the Load Balancer backend service."
+  type        = bool
+  default     = false
+}
+
+variable "iap_client_id" {
+  description = "OAuth 2.0 Client ID for Identity-Aware Proxy."
+  type        = string
+  default     = ""
+  sensitive   = true
+}
+
+variable "iap_client_secret" {
+  description = "OAuth 2.0 Client Secret for Identity-Aware Proxy."
+  type        = string
+  default     = ""
+  sensitive   = true
+}
+
+variable "iap_allowed_members" {
+  description = "List of IAM identities (domains, groups, users) granted roles/iap.httpsResourceAccessor."
+  type        = list(string)
+  default     = ["domain:jcfesantieu.altostrat.com"]
+}

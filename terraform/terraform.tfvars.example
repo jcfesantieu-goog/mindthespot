@@ -34,5 +34,18 @@ app_memory        = "1Gi"
 # GitHub Repository for Workload Identity Federation (owner/repo)
 github_repository = "jcfesantieu-goog/mindthespot"
 
-# Public Access to Cloud Run Web Dashboard
+# Public Access to Cloud Run Web Dashboard (false if using Load Balancer / DRS)
 enable_public_access = false
+
+# Global External Load Balancer & Managed SSL
+enable_load_balancer = true
+domain_name          = "" # Leave empty to auto-use spot-<ip>.sslip.io
+
+# Cloud Identity-Aware Proxy (IAP) Settings
+enable_iap          = false
+iap_client_id       = ""
+iap_client_secret   = ""
+iap_allowed_members = [
+  "domain:jcfesantieu.altostrat.com"
+]
+

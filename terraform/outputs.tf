@@ -42,3 +42,19 @@ output "app_service_account_email" {
   description = "Email of the dedicated application Service Account"
   value       = google_service_account.app.email
 }
+
+output "load_balancer_ip" {
+  description = "Global Static IPv4 address of the External HTTPS Load Balancer"
+  value       = try(google_compute_global_address.app_ip[0].address, "")
+}
+
+output "app_domain" {
+  description = "Configured or auto-generated sslip.io domain for the application"
+  value       = try(local.effective_domain, "")
+}
+
+output "app_https_url" {
+  description = "HTTPS URL for accessing the MindTheSpot web dashboard via Load Balancer / IAP"
+  value       = try("https://${local.effective_domain}", "")
+}
+

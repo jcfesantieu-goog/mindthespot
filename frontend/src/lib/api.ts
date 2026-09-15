@@ -88,3 +88,20 @@ export async function addWatchlistTarget(entry: {
   });
   if (!res.ok) throw new Error(`Failed to add watchlist: ${res.statusText}`);
 }
+
+export interface UserContextResponse {
+  email: string;
+  user_id?: string | null;
+  is_authenticated: boolean;
+}
+
+export async function fetchCurrentUser(): Promise<UserContextResponse> {
+  try {
+    const res = await fetch(`${BASE_URL}/v1/auth/me`);
+    if (!res.ok) return { email: "dev@mindthespot.internal", is_authenticated: false };
+    return res.json();
+  } catch {
+    return { email: "dev@mindthespot.internal", is_authenticated: false };
+  }
+}
+

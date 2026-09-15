@@ -7,7 +7,7 @@ resource "google_cloud_run_v2_service" "app" {
   project  = var.project_id
   name     = "mindthespot-app"
   location = var.region
-  ingress  = "INGRESS_TRAFFIC_ALL"
+  ingress  = var.enable_load_balancer ? "INGRESS_TRAFFIC_INTERNAL_LOAD_BALANCER" : "INGRESS_TRAFFIC_ALL"
 
   template {
     service_account = google_service_account.app.email
