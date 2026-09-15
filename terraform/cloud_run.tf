@@ -8,6 +8,10 @@ resource "google_cloud_run_v2_service" "app" {
   name     = "mindthespot-app"
   location = var.region
   ingress  = var.enable_load_balancer ? "INGRESS_TRAFFIC_INTERNAL_LOAD_BALANCER" : "INGRESS_TRAFFIC_ALL"
+  custom_audiences = compact(var.enable_load_balancer ? [
+    local.effective_domain != "" ? "https://${local.effective_domain}" : "",
+    var.iap_client_id
+  ] : [])
 
   template {
     service_account = google_service_account.app.email
