@@ -35,7 +35,7 @@ Instead of passive telemetry or slow generic dashboards, MindTheSpot acts as an 
 
 ### 2.1 System Architecture Overview
 
-MindTheSpot is structured as a cloud-native, decoupled system separating asynchronous ingestion from read-optimized analytical querying and frontend presentation.
+MindTheSpot is structured as a cloud-native, decoupled system separating asynchronous ingestion from read-optimized analytical querying and secure zero-trust frontend presentation.
 
 ```mermaid
 flowchart TD
@@ -54,11 +54,17 @@ flowchart TD
         BQ_View_Pivots["mindthespot_analytics.v_pivot_recommendations (Fallback Sibling Zones & Families)"]
     end
 
-    subgraph Serving_and_Presentation ["3. Serving & Modern Interface"]
-        RunService["Cloud Run Service (mindthespot-app)"]
-        FastAPI["FastAPI Backend (REST API + In-Memory TTL Cache)"]
-        ReactUI["Modern React 18 SPA (Vite + Tailwind + shadcn/ui + Recharts)"]
+    subgraph Edge_and_Identity ["3. Zero-Trust Access & Identity (Cloud IAP)"]
         Users["FinOps & DevOps Engineers"]
+        HTTPS_LB["Global HTTPS Load Balancer (Static IP + Managed SSL)"]
+        IAP_Proxy{"Cloud IAP (OAuth 2.0 & IAM Check)"}
+        Serverless_NEG["Serverless NEG (europe-west4)"]
+    end
+
+    subgraph Serving_and_Presentation ["4. Private Serving & Modern Interface"]
+        RunService["Cloud Run Service (mindthespot-app)<br/>(Ingress: Internal & Cloud Load Balancer)"]
+        FastAPI["FastAPI Backend (REST API + In-Memory TTL Cache + IAP User Context)"]
+        ReactUI["Modern React 18 SPA (Vite + Tailwind + shadcn/ui + Recharts)"]
     end
 
     Scheduler -->|Triggers HTTP execution| RunJob
@@ -74,12 +80,16 @@ flowchart TD
     BQ_Raw_Price --> BQ_View_Shifts
     BQ_View_Shifts --> BQ_View_Pivots
 
+    Users -->|HTTPS Request| HTTPS_LB
+    HTTPS_LB --> IAP_Proxy
+    IAP_Proxy -->|✅ Authenticated + Injects X-Goog-Authenticated-User-Email| Serverless_NEG
+    Serverless_NEG --> RunService
+    RunService --> FastAPI
+
     BQ_View_Shifts -->|Query with TTL Caching| FastAPI
     BQ_View_Pivots -->|Query with TTL Caching| FastAPI
-    RunService --> FastAPI
     FastAPI -->|Serves Static Bundle on /*| ReactUI
     FastAPI -->|Serves REST Endpoints on /api/v1/*| ReactUI
-    ReactUI --> Users
 ```
 
 ---
@@ -105,7 +115,22 @@ flowchart TD
     * `v_regime_shifts`: Computes baseline mean $\mu_{\text{base}}$ ($d_1 \dots d_{23}$), recent mean $\mu_{7d}$ ($d_{24} \dots d_{30}$), variance $\sigma_{\text{base}}$, and Z-score $Z = \frac{\mu_{7d} - \mu_{\text{base}}}{\max(\sigma_{\text{base}}, 0.02)}$. Also detects discrete price interval shifts ($\Delta_{\text{price}} \ge 10\%$).
     * `v_pivot_recommendations`: Cross-joins anomaly pools with candidate stable pools in the same region, evaluating latency proximity (sibling zones) and hardware equivalence (same vCPU/RAM envelope across C4D, C3D, C4A, N2D).
 
-#### 3. Backend Serving Subsystem (FastAPI)
+#### 3. Identity-Aware Proxy & Edge Ingress Subsystem (Cloud IAP)
+* **Zero-Trust Access Model:**
+  * Public HTTPS traffic terminates at a **Global External Application Load Balancer** with Google-managed SSL certificates and HTTP-to-HTTPS automatic redirection.
+  * Traffic passes through **Google Cloud Identity-Aware Proxy (IAP)**, requiring OAuth 2.0 authentication against corporate Google Workspace / Cloud Identity domains.
+  * Access is strictly controlled via IAM role `roles/iap.httpsResourceAccessor` granted to permitted domains (e.g. `domain:jcfesantieu.altostrat.com`) or specific engineering groups.
+* **Private Compute Protection (DRS-Compliant):**
+  * The Cloud Run service enforces `ingress = "INGRESS_TRAFFIC_INTERNAL_LOAD_BALANCER"`. Direct internet traffic to `*.a.run.app` is blocked at the network perimeter.
+  * Traffic reaches Cloud Run exclusively via a regional **Serverless Network Endpoint Group (NEG)** attached to the backend service.
+* **User Context Propagation:**
+  * IAP injects cryptographically signed headers into upstream HTTP requests:
+    * `X-Goog-Authenticated-User-Email`: e.g. `accounts.google.com:sre@jcfesantieu.altostrat.com`
+    * `X-Goog-Authenticated-User-Id`: Unique Google identity identifier
+    * `X-Goog-IAP-JWT-Assertion`: Signed JWT verifiable using Google's public keys
+  * The FastAPI backend inspects these headers to provide auditability, personalized watchlist preferences, and user attribution without complex application-level OAuth flows.
+
+#### 4. Backend Serving Subsystem (FastAPI)
 * **API Gateway & Service Layer:**
   * Built with **FastAPI** running on Uvicorn. Exposes typed OpenAPI JSON specs and interactive `/docs`.
   * Implements an in-memory TTL query cache (`cachetools.TTLCache`, 15-minute expiration) for BigQuery query results to prevent redundant query scans and cost during high dashboard traffic.
@@ -113,7 +138,7 @@ flowchart TD
   * FastAPI mounts the compiled React production bundle (`frontend/dist`) at the root `/` and serves dynamic REST APIs under `/api/v1/*`.
   * Catches unhandled routes to return `index.html` for client-side HTML5 history routing.
 
-#### 4. Modern Frontend Subsystem (React + Vite + shadcn/ui)
+#### 5. Modern Frontend Subsystem (React + Vite + shadcn/ui)
 * **Component Architecture:**
   * **Situation Room:** High-density, real-time alert feed displaying active `CRITICAL`, `ELEVATED`, and `PRICE HIKE` badges.
   * **Pool Explorer:** Region, zone, and family selectors with interactive Recharts time-series graphs featuring threshold reference lines ($20\%$, $50\%$) and moving average trends.
@@ -131,12 +156,12 @@ flowchart TD
   * **Dashboard/API Identity:** Dedicated GCP Service Account (`mindthespot-app@<project>.iam.gserviceaccount.com`) assigned only:
     * `roles/bigquery.dataViewer` (scoped to `mindthespot_analytics` dataset).
     * `roles/bigquery.jobUser` (permission to run analytical queries).
-* **Zero Static Secrets:**
+* **Zero Static Secrets & Keyless CI/CD:**
   * No service account JSON keys or API keys stored on disk or in repository.
-  * Local development uses Application Default Credentials (`gcloud auth application-default login`).
+  * GitHub Actions uses **Workload Identity Federation (WIF)** OIDC tokens for automated deployment.
   * Cloud Run workloads authenticate automatically via metadata server Workload Identity.
 * **Network & Ingress Security:**
-  * Cloud Run ingress can be restricted to internal VPC traffic or placed behind **Google Cloud Identity-Aware Proxy (IAP)** to ensure only authenticated corporate employees access the dashboard.
+  * Cloud Run ingress is restricted to `INGRESS_TRAFFIC_INTERNAL_LOAD_BALANCER` behind **Google Cloud Identity-Aware Proxy (IAP)**, guaranteeing full compatibility with Domain Restricted Sharing (`constraints/iam.allowedPolicyMemberDomains`) policies.
 
 ---
 
