@@ -92,6 +92,18 @@ resource "google_project_iam_member" "cicd_storage_admin" {
   member  = "serviceAccount:${google_service_account.cicd.email}"
 }
 
+resource "google_project_iam_member" "cicd_project_iam_admin" {
+  project = var.project_id
+  role    = "roles/resourcemanager.projectIamAdmin"
+  member  = "serviceAccount:${google_service_account.cicd.email}"
+}
+
+resource "google_project_iam_member" "cicd_wif_admin" {
+  project = var.project_id
+  role    = "roles/iam.workloadIdentityPoolAdmin"
+  member  = "serviceAccount:${google_service_account.cicd.email}"
+}
+
 # Workload Identity Pool
 resource "google_iam_workload_identity_pool" "github_pool" {
   project                   = var.project_id
