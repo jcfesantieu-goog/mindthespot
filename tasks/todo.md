@@ -132,3 +132,27 @@
 
 
 
+
+---
+
+## Phase 8: Enterprise Security, Cloud IAP & Custom Domain (`iap-edge`)
+
+- [x] Task 15: Global External HTTPS Load Balancer with Serverless NEG
+  - **Acceptance:** Provision global Anycast IPv4 address (`8.232.252.55`), Serverless NEG in `europe-west4`, backend service targeting Cloud Run, and URL map with HTTP to HTTPS port 80 -> 443 301 redirection.
+  - **Verify:** Load Balancer routes traffic to Cloud Run service without direct internet exposure.
+  - **Files:** `terraform/load_balancer.tf`, `terraform/outputs.tf`
+
+- [x] Task 16: Dynamic DNS with sslip.io & Google-Managed SSL Certificate
+  - **Acceptance:** Automate FQDN computation `spot-${replace(local.lb_ip, ".", "-")}.sslip.io` (`spot-8-232-252-55.sslip.io`) and attach `google_compute_managed_ssl_certificate`.
+  - **Verify:** Browser connection establishes secure TLS connection with Google Trust Services valid certificate.
+  - **Files:** `terraform/load_balancer.tf`
+
+- [x] Task 17: Cloud Identity-Aware Proxy (IAP) & DRS Compliance
+  - **Acceptance:** Configure IAP on the Load Balancer backend service with OAuth 2.0 Web Client. Enforce `INGRESS_TRAFFIC_INTERNAL_LOAD_BALANCER` on Cloud Run. Bind `roles/run.invoker` to IAP Service Agent (`serviceAccount:service-903096587182@gcp-sa-iap.iam.gserviceaccount.com`). Bind `roles/iap.httpsResourceAccessor` to authorized enterprise identity (`domain:jcfesantieu.altostrat.com`, `user:sre@jcfesantieu.altostrat.com`). Add `custom_audiences` to Cloud Run.
+  - **Verify:** Direct `*.run.app` access returns 403. Access via `https://spot-8-232-252-55.sslip.io/` triggers Google OAuth login and permits authenticated users.
+  - **Files:** `terraform/iap.tf`, `terraform/cloud_run.tf`, `docs/adr/001-cloud-iap-load-balancer-sslip.md`
+
+### Checkpoint 8: Production Edge Security Complete
+- [x] Zero-Trust access model operational and verified live
+- [x] Domain Restricted Sharing organizational constraint fully satisfied
+- [x] Cloud Run secured against direct public invocations

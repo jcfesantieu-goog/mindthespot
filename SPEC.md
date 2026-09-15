@@ -117,18 +117,23 @@ flowchart TD
 
 #### 3. Identity-Aware Proxy & Edge Ingress Subsystem (Cloud IAP)
 * **Zero-Trust Access Model:**
-  * Public HTTPS traffic terminates at a **Global External Application Load Balancer** with Google-managed SSL certificates and HTTP-to-HTTPS automatic redirection.
-  * Traffic passes through **Google Cloud Identity-Aware Proxy (IAP)**, requiring OAuth 2.0 authentication against corporate Google Workspace / Cloud Identity domains.
-  * Access is strictly controlled via IAM role `roles/iap.httpsResourceAccessor` granted to permitted domains (e.g. `domain:jcfesantieu.altostrat.com`) or specific engineering groups.
+  * Public HTTPS traffic terminates at a **Global External Application Load Balancer** (`EXTERNAL_MANAGED`) backed by a dedicated static Anycast IPv4 address (`8.232.252.55`).
+  * Features a permanent HTTP $\rightarrow$ HTTPS 301 redirection URL map (Port 80 $\rightarrow$ 443).
+  * Leverages dynamic wildcard DNS via `sslip.io` (`spot-${replace(local.lb_ip, ".", "-")}.sslip.io` $\rightarrow$ `https://spot-8-232-252-55.sslip.io`), paired with an automated **Google-Managed SSL Certificate** issued and renewed by Google Trust Services CA without manual DNS intervention.
+  * Ingress traffic is intercepted by **Google Cloud Identity-Aware Proxy (IAP)**, enforcing OAuth 2.0 corporate authentication against Google Workspace / Cloud Identity domains.
+  * Access is strictly controlled via IAM role `roles/iap.httpsResourceAccessor` granted to authorized domains (e.g. `domain:jcfesantieu.altostrat.com`) and specific engineering users (`user:sre@jcfesantieu.altostrat.com`).
 * **Private Compute Protection (DRS-Compliant):**
   * The Cloud Run service enforces `ingress = "INGRESS_TRAFFIC_INTERNAL_LOAD_BALANCER"`. Direct internet traffic to `*.a.run.app` is blocked at the network perimeter.
   * Traffic reaches Cloud Run exclusively via a regional **Serverless Network Endpoint Group (NEG)** attached to the backend service.
+  * Because organizational policy enforces Domain Restricted Sharing (`constraints/iam.allowedPolicyMemberDomains`), `allUsers` cannot be bound to Cloud Run. Instead, the **IAP Service Agent** (`serviceAccount:service-${PROJECT_NUMBER}@gcp-sa-iap.iam.gserviceaccount.com`) is granted `roles/run.invoker` on Cloud Run.
+  * IAP attaches a signed OIDC token in `X-Serverless-Authorization` which Cloud Run validates before stripping.
+  * Cloud Run declares `custom_audiences` (`https://${local.effective_domain}` and `var.iap_client_id`) to ensure token audience alignment.
 * **User Context Propagation:**
   * IAP injects cryptographically signed headers into upstream HTTP requests:
     * `X-Goog-Authenticated-User-Email`: e.g. `accounts.google.com:sre@jcfesantieu.altostrat.com`
     * `X-Goog-Authenticated-User-Id`: Unique Google identity identifier
     * `X-Goog-IAP-JWT-Assertion`: Signed JWT verifiable using Google's public keys
-  * The FastAPI backend inspects these headers to provide auditability, personalized watchlist preferences, and user attribution without complex application-level OAuth flows.
+  * The FastAPI backend inspects these headers (e.g. `/api/v1/auth/me`) to provide user attribution, personalized watchlist preferences, and security auditability without requiring complex application-level OAuth flows.
 
 #### 4. Backend Serving Subsystem (FastAPI)
 * **API Gateway & Service Layer:**
@@ -312,12 +317,29 @@ mindthespot/
 │           ├── PriceTimeline.tsx      # Step-function historical price timeline
 │           ├── PivotModal.tsx         # Interactive fallback comparison drawer/dialog
 │           └── WatchlistToggle.tsx    # Filter between "All Pools" and "My Watchlist"
+├── terraform/                         # Declarative Infrastructure as Code (GCP)
+│   ├── versions.tf                    # Google & Google-Beta providers, GCS backend
+│   ├── variables.tf                   # Variables with defaults (IAP, domain, regions, quotas)
+│   ├── apis.tf                        # Enabled GCP APIs (run, compute, iap, bigquery, scheduler)
+│   ├── load_balancer.tf               # Global HTTPS Load Balancer, Serverless NEG, Managed SSL
+│   ├── iap.tf                         # IAP access policy & IAP service identity invoker binding
+│   ├── cloud_run.tf                   # Cloud Run Service (FastAPI + React) & Job (Crawler)
+│   ├── cloud_scheduler.tf             # Weekly cron trigger targeting Cloud Run Job
+│   ├── bigquery.tf                    # Raw partitioned tables & analytics SQL views
+│   ├── artifact_registry.tf           # Docker repository for container images
+│   ├── iam.tf                         # PoLP Service Accounts & Workload Identity Federation
+│   └── outputs.tf                     # Load Balancer IP, sslip.io FQDN, WIF provider name
+├── .github/workflows/                 # Continuous Integration & GitOps Pipelines
+│   ├── ci.yml                         # Automated PR tests (Pytest + Vite build + Terraform fmt)
+│   ├── terraform-plan.yml             # Speculative Terraform plan on PRs via WIF
+│   └── gitops.yml                     # Production GitOps deployment on push to main
 └── tests/
     ├── conftest.py                    # Mock fixtures for GCP API responses
     ├── test_config.py                 # Test catalog and custom watchlist validation
     ├── test_crawler.py                # Test rate limiting, retries, and API parsing
     ├── test_analytics.py              # Test Z-score math, threshold triggers, pivot logic
     ├── test_api.py                    # Test FastAPI route responses with mock BigQuery service
+    ├── test_cli.py                    # Test CLI commands and options
     └── test_bigquery_storage.py       # Test payload formatting and idempotent writes
 ```
 
@@ -550,9 +572,13 @@ export const AnomalyCard: React.FC<AnomalyCardProps> = ({ anomaly, onSelectPivot
 
 ## 10. Success Criteria
 
-- [ ] **Catalog Coverage:** Successfully crawls default catalog (`c4d`, `c3d`, `c4a`, `c2`, `c3`, `n2`, `n2d`, `e2`) across 6 core regions + custom watchlist entries in $< 5$ minutes.
-- [ ] **Rate Limiting:** Zero `429 Quota Exceeded` errors during a 1,000-request crawl run.
-- [ ] **Data Integrity:** BigQuery tables populated with clean 30-day preemption points and 1-year price intervals.
-- [ ] **Anomaly Precision:** Accurately flags simulated preemption spikes ($\mu_{7d}$ doubling with $Z \ge 2.5$) and 10%+ price hikes without false-positive noise on zero-preemption pools.
-- [ ] **Actionable Pivots:** For any `CRITICAL` pool, dashboard immediately suggests at least one lower-risk sibling zone or equivalent family candidate.
-- [ ] **Modern UI Performance:** React dashboard loads in $< 1.5$ seconds, features responsive dark/light mode, and renders interactive Recharts time-series curves with zero lag.
+- [x] **Catalog Coverage:** Successfully crawls default catalog (`c4d`, `c3d`, `c4a`, `c2`, `c3`, `n2`, `n2d`, `e2`) across 6 core regions + custom watchlist entries in $< 5$ minutes.
+- [x] **Rate Limiting:** Zero `429 Quota Exceeded` errors during a 1,000-request crawl run.
+- [x] **Data Integrity:** BigQuery tables populated with clean 30-day preemption points and 1-year price intervals.
+- [x] **Anomaly Precision:** Accurately flags simulated preemption spikes ($\mu_{7d}$ doubling with $Z \ge 2.5$) and 10%+ price hikes without false-positive noise on zero-preemption pools.
+- [x] **Actionable Pivots:** For any `CRITICAL` pool, dashboard immediately suggests at least one lower-risk sibling zone or equivalent family candidate.
+- [x] **Modern UI Performance:** React dashboard loads in $< 1.5$ seconds, features responsive dark/light mode, and renders interactive Recharts time-series curves with zero lag.
+- [x] **Zero-Trust Access & Edge Ingress:** Global External HTTPS Load Balancer with dynamic `sslip.io` wildcard FQDN (`spot-8-232-252-55.sslip.io`), automated Google-Managed SSL certificate, and Cloud IAP authentication for enterprise users.
+- [x] **DRS Compliance & Network Security:** Cloud Run locked down to `INGRESS_TRAFFIC_INTERNAL_LOAD_BALANCER` behind Serverless NEG, invoked via IAP Service Agent delegation (`roles/run.invoker`) with `custom_audiences`.
+- [x] **Automated Keyless GitOps:** End-to-end continuous deployment via GitHub Actions using Workload Identity Federation (WIF) with multi-stage Docker build and declarative Terraform apply.
+
