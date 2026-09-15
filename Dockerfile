@@ -19,6 +19,7 @@ WORKDIR /app
 
 ENV PYTHONUNBUFFERED=1 \
     PYTHONDONTWRITEBYTECODE=1 \
+    PYTHONPATH=/app \
     PORT=8080
 
 # Install build dependencies
@@ -26,14 +27,14 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     curl \
     && rm -rf /var/lib/apt/lists/*
 
-# Copy dependency definition and install
+# Copy configuration and application source code
 COPY pyproject.toml README.md ./
-RUN pip install --no-cache-dir .
-
-# Copy application source code and configuration
 COPY config/ /app/config/
 COPY sql/ /app/sql/
 COPY mindthespot/ /app/mindthespot/
+
+# Install Python package and CLI entrypoint
+RUN pip install --no-cache-dir .
 
 # Copy compiled frontend from Stage 1
 COPY --from=frontend-builder /app/frontend/dist /app/frontend/dist
