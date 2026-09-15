@@ -136,12 +136,41 @@ class GCPCapacityHistoryClient:
         data = await self._send_request_with_backoff(url, payload)
         rates: list[DailyPreemptionRate] = []
 
-        history_items = data.get("capacityHistory", [])
-        for item in history_items:
+        # Parse direct GCP API format: {"preemptionHistory": [...]}
+        raw_preempt_list = data.get("preemptionHistory", [])
+        if isinstance(raw_preempt_list, list):
+            for entry in raw_preempt_list:
+                dt = entry.get("date") or (
+                    entry.get("interval", {}).get("startTime", "")[:10]
+                    if entry.get("interval")
+                    else None
+                )
+                rate_val = entry.get("preemptionRate", 0.0)
+                if dt:
+                    rates.append(
+                        DailyPreemptionRate(
+                            date=dt,
+                            preemption_rate=float(rate_val),
+                        )
+                    )
+
+        # Parse nested capacityHistory wrapper format
+        for item in data.get("capacityHistory", []):
             if item.get("historyType") == "PREEMPTION":
                 preempt_hist = item.get("preemptionHistory", {})
-                for entry in preempt_hist.get("dailyPreemptionRates", []):
-                    dt = entry.get("date")
+                entries = (
+                    preempt_hist.get("dailyPreemptionRates", [])
+                    if isinstance(preempt_hist, dict)
+                    else preempt_hist
+                    if isinstance(preempt_hist, list)
+                    else []
+                )
+                for entry in entries:
+                    dt = entry.get("date") or (
+                        entry.get("interval", {}).get("startTime", "")[:10]
+                        if entry.get("interval")
+                        else None
+                    )
                     rate_val = entry.get("preemptionRate", 0.0)
                     if dt:
                         rates.append(
@@ -151,9 +180,10 @@ class GCPCapacityHistoryClient:
                             )
                         )
 
-        # Sort chronologically by date
-        rates.sort(key=lambda r: r.date)
-        return rates
+        # Deduplicate and sort chronologically by date
+        unique_rates = {r.date: r for r in rates}
+        sorted_rates = sorted(unique_rates.values(), key=lambda r: r.date)
+        return sorted_rates
 
     async def fetch_price_history(
         self,
@@ -174,11 +204,41 @@ class GCPCapacityHistoryClient:
         data = await self._send_request_with_backoff(url, payload)
         intervals: list[PriceIntervalRecord] = []
 
-        history_items = data.get("capacityHistory", [])
-        for item in history_items:
+        # Parse direct GCP API format: {"priceHistory": [...]}
+        raw_price_list = data.get("priceHistory", [])
+        if isinstance(raw_price_list, list):
+            for entry in raw_price_list:
+                interval_data = entry.get("interval", {})
+                start_t = interval_data.get("startTime")
+                end_t = interval_data.get("endTime")
+                list_price = entry.get("listPrice", {})
+                units = float(list_price.get("units", 0))
+                nanos = float(list_price.get("nanos", 0))
+                hourly = units + (nanos / 1e9)
+                curr = list_price.get("currencyCode", "USD")
+
+                if start_t:
+                    intervals.append(
+                        PriceIntervalRecord(
+                            start_time=start_t,
+                            end_time=end_t,
+                            hourly_price=round(hourly, 6),
+                            currency=curr,
+                        )
+                    )
+
+        # Parse nested capacityHistory wrapper format
+        for item in data.get("capacityHistory", []):
             if item.get("historyType") == "PRICE":
                 price_hist = item.get("priceHistory", {})
-                for entry in price_hist.get("priceIntervals", []):
+                entries = (
+                    price_hist.get("priceIntervals", [])
+                    if isinstance(price_hist, dict)
+                    else price_hist
+                    if isinstance(price_hist, list)
+                    else []
+                )
+                for entry in entries:
                     interval_data = entry.get("interval", {})
                     start_t = interval_data.get("startTime")
                     end_t = interval_data.get("endTime")

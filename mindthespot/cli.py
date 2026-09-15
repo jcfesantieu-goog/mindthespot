@@ -38,11 +38,11 @@ def crawl(
     ] = "console",
     project: Annotated[
         str,
-        typer.Option("--project", help="GCP project ID"),
+        typer.Option("--project", envvar="GCP_PROJECT_ID", help="GCP project ID"),
     ] = "mindthespot-default",
     dataset: Annotated[
         str,
-        typer.Option("--dataset", help="Target BigQuery raw dataset"),
+        typer.Option("--dataset", envvar="BIGQUERY_DATASET_RAW", help="Target BigQuery raw dataset"),
     ] = "mindthespot_raw",
     catalog_path: Annotated[
         Path | None,
@@ -62,7 +62,7 @@ def crawl(
     ] = None,
 ) -> None:
     """Crawl GCP Spot preemption rates and interval pricing."""
-    console.print("[bold cyan]🚀 Starting MindTheSpot Crawler...[/bold cyan]")
+    console.print(f"[bold cyan]🚀 Starting MindTheSpot Crawler (Project: {project}, Dataset: {dataset})...[/bold cyan]")
 
     catalog = load_catalog(catalog_path)
     watchlist = load_watchlist(watchlist_path)
@@ -96,7 +96,34 @@ def crawl(
 
         console.print(table)
 
-        if dry_run or output == "console":
+        if not dry_run and output == "bigquery":
+            console.print(
+                f"[bold cyan]📦 Persisting {len(preempt_records)} preemption and "
+                f"{len(price_records)} price records to BigQuery [{project}.{dataset}]...[/bold cyan]"
+            )
+            from mindthespot.storage.bigquery_client import BigQueryStorageClient
+
+            storage = BigQueryStorageClient(project=project, dataset=dataset)
+            storage.ensure_dataset_and_tables()
+            p_rows = [r.model_dump() for r in preempt_records]
+            pr_rows = [r.model_dump() for r in price_records]
+            # Convert dates and intervals to JSON-serializable strings
+            for r in p_rows:
+                r["snapshot_date"] = str(r["snapshot_date"])
+                r["date"] = str(r["date"])
+            for r in pr_rows:
+                r["snapshot_date"] = str(r["snapshot_date"])
+                r["start_time"] = str(r["start_time"])
+                if r.get("end_time"):
+                    r["end_time"] = str(r["end_time"])
+
+            p_count = storage.insert_preemption_rows(p_rows)
+            pr_count = storage.insert_price_rows(pr_rows)
+            console.print(
+                f"[bold green]✅ Successfully persisted {p_count} preemption records and "
+                f"{pr_count} price records into BigQuery.[/bold green]"
+            )
+        elif dry_run or output == "console":
             console.print(
                 f"[yellow]ℹ️ Dry-run mode active. {len(preempt_records)} preemption and "
                 f"{len(price_records)} price records collected (no database writes).[/yellow]"
