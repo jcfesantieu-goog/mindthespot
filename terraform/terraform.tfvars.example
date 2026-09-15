@@ -1,0 +1,38 @@
+# Target Google Cloud Project ID
+project_id = "your-gcp-project-id"
+
+# Primary Google Cloud Region
+region = "europe-west4"
+
+# Environment Identifier
+environment = "prod"
+
+# Artifact Registry Repository Name
+artifact_registry_name = "mindthespot"
+
+# Container Image Tag (defaults to latest)
+container_image_tag = "latest"
+
+# BigQuery Dataset Names
+bigquery_dataset_raw       = "mindthespot_raw"
+bigquery_dataset_analytics = "mindthespot_analytics"
+
+# Crawler Cron Schedule (Weekly Monday at 01:00 UTC)
+crawler_cron_schedule = "0 1 * * 1"
+crawler_time_zone     = "Etc/UTC"
+
+# Resource Allocations
+crawler_cpu             = "1000m"
+crawler_memory          = "2Gi"
+crawler_timeout_seconds = 1800
+
+app_min_instances = 0
+app_max_instances = 10
+app_cpu           = "1000m"
+app_memory        = "1Gi"
+
+# GitHub Repository for Workload Identity Federation (owner/repo)
+github_repository = "jcfesantieu-goog/mindthespot"
+
+# Public Access to Cloud Run Web Dashboard
+enable_public_access = true

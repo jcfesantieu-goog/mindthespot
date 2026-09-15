@@ -107,3 +107,28 @@
 - [x] Production frontend build verified (`npm run build`)
 - [x] Unified server operational on port 8080 with dual API and SPA static serving
 
+---
+
+## Phase 7: Terraform Infrastructure as Code & GitOps Workflow (`iac-gitops`)
+
+- [x] Task 12: Terraform GCP Infrastructure Modules
+  - **Acceptance:** Full Terraform configurations for Google APIs, Artifact Registry, BigQuery partitioned tables and analytical views, Cloud Run Service (App), Cloud Run Job (Crawler), and Cloud Scheduler cron.
+  - **Verify:** `terraform fmt -check` passes.
+  - **Files:** `terraform/versions.tf`, `terraform/variables.tf`, `terraform/apis.tf`, `terraform/artifact_registry.tf`, `terraform/bigquery.tf`, `terraform/cloud_run.tf`, `terraform/cloud_scheduler.tf`, `terraform/outputs.tf`, `terraform/terraform.tfvars.example`
+
+- [x] Task 13: Workload Identity Federation & Least Privilege IAM
+  - **Acceptance:** Dedicated Service Accounts (`mindthespot-crawler`, `mindthespot-app`, `mindthespot-scheduler`, `mindthespot-cicd`) with PoLP roles, and GitHub Actions OIDC Workload Identity Pool and Provider.
+  - **Verify:** IAM bindings and attribute conditions match GitHub repo specification without static keys.
+  - **Files:** `terraform/iam.tf`
+
+- [x] Task 14: GitHub Actions CI/CD & GitOps Pipelines
+  - **Acceptance:** `.github/workflows/ci.yml` runs test gates (Python lint/tests + React build + Terraform fmt), and `.github/workflows/gitops.yml` builds/pushes container to Artifact Registry and updates Cloud Run.
+  - **Verify:** Workflows pass YAML linting and validation.
+  - **Files:** `.github/workflows/ci.yml`, `.github/workflows/gitops.yml`
+
+### Checkpoint 7: Terraform & GitOps Validated
+- [x] Terraform files formatted and validated
+- [x] Workflows and IaC committed and pushed to GitHub
+
+
+

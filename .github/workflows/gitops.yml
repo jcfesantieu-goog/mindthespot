@@ -1,0 +1,110 @@
+name: GitOps Production Deployment
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  id-token: write
+
+concurrency:
+  group: gitops-production
+  cancel-in-progress: false
+
+env:
+  GCP_REGION: ${{ vars.GCP_REGION || 'europe-west4' }}
+  GCP_PROJECT_ID: ${{ vars.GCP_PROJECT_ID }}
+  ARTIFACT_REGISTRY: ${{ vars.GCP_ARTIFACT_REGISTRY || 'mindthespot' }}
+
+jobs:
+  preflight-gates:
+    name: Pre-Flight Verification Gates
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python 3.12
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: "pip"
+
+      - name: Install & Run Python Tests
+        run: |
+          pip install -e ".[dev]"
+          ruff check .
+          pytest -v tests/
+
+      - name: Set up Node.js 22
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: "npm"
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Build Frontend Production Assets
+        run: |
+          cd frontend
+          npm ci
+          npm run build
+
+  build-and-deploy:
+    name: Build Container & Deploy to Cloud Run
+    needs: [preflight-gates]
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+
+      - name: Authenticate to Google Cloud via Workload Identity Federation
+        uses: google-github-actions/auth@v2
+        with:
+          workload_identity_provider: ${{ secrets.GCP_WIF_PROVIDER }}
+          service_account: ${{ secrets.GCP_WIF_SERVICE_ACCOUNT }}
+          token_format: "access_token"
+
+      - name: Set up Cloud SDK
+        uses: google-github-actions/setup-gcloud@v2
+
+      - name: Configure Docker for Artifact Registry
+        run: |
+          gcloud auth configure-docker ${{ env.GCP_REGION }}-docker.pkg.dev --quiet
+
+      - name: Build & Push Production Multi-Stage Container
+        env:
+          IMAGE_BASE: "${{ env.GCP_REGION }}-docker.pkg.dev/${{ env.GCP_PROJECT_ID }}/${{ env.ARTIFACT_REGISTRY }}/mindthespot"
+          SHA_TAG: "${{ github.sha }}"
+        run: |
+          echo "Building multi-stage container image..."
+          docker build \
+            -t "${IMAGE_BASE}:${SHA_TAG}" \
+            -t "${IMAGE_BASE}:latest" \
+            .
+
+          echo "Pushing images to Artifact Registry..."
+          docker push "${IMAGE_BASE}:${SHA_TAG}"
+          docker push "${IMAGE_BASE}:latest"
+
+      - name: Deploy Cloud Run Service (Web Dashboard & API)
+        env:
+          IMAGE_URI: "${{ env.GCP_REGION }}-docker.pkg.dev/${{ env.GCP_PROJECT_ID }}/${{ env.ARTIFACT_REGISTRY }}/mindthespot:${{ github.sha }}"
+        run: |
+          echo "Deploying Cloud Run Web Application..."
+          gcloud run deploy mindthespot-app \
+            --image="${IMAGE_URI}" \
+            --region="${{ env.GCP_REGION }}" \
+            --platform=managed \
+            --quiet
+
+      - name: Update Cloud Run Job (Ingestion Crawler)
+        env:
+          IMAGE_URI: "${{ env.GCP_REGION }}-docker.pkg.dev/${{ env.GCP_PROJECT_ID }}/${{ env.ARTIFACT_REGISTRY }}/mindthespot:${{ github.sha }}"
+        run: |
+          echo "Updating Cloud Run Crawler Job container image..."
+          gcloud run jobs update mindthespot-crawler \
+            --image="${IMAGE_URI}" \
+            --region="${{ env.GCP_REGION }}" \
+            --quiet
