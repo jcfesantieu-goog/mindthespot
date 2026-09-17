@@ -1,6 +1,7 @@
 """Pivot recommendation matrix and candidate matching rules."""
 
 import re
+
 from pydantic import BaseModel, Field
 
 EQUIVALENT_FAMILIES_MAP: dict[str, list[str]] = {
