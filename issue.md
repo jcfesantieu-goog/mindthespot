@@ -108,5 +108,7 @@ We propose a 5-pillar optimization reducing memory consumption from **$> 2.5\tex
 - [x] **Bounded Regional Execution**: Refactor `mindthespot/crawler/extractor.py` to group targets and process region-by-region.
 - [x] **Region Streaming Ingestion**: Update `CrawlEngine.run` with `on_region_complete` streaming callback and `mindthespot/cli.py` to flush each region to BigQuery immediately and reclaim memory.
 - [x] **Test & Verification**: Added unit tests in `tests/test_crawler.py` covering shared session, token caching, and regional streaming. 45/45 tests passing with 91% code coverage (100% on `extractor.py`).
-- [ ] **Sync & Deploy**: Commit, push to `main`, and verify GitOps CI/CD deployment.
+- [x] **Sync & Deploy**: Committed (`e313c7c`), pushed to `main`, and deployed via GitOps CI/CD pipeline (GitHub Actions run `35234464388`).
+- [x] **Production Verification**: Triggered Cloud Run job execution `mindthespot-crawler-jdjpb` in `europe-west4`. Real-time region streaming confirmed directly inserting into BigQuery without OOM (`< 100 MB` memory footprint).
+
 
