@@ -1,13 +1,13 @@
 """Tests for Hybrid Pre-Warm and Background Sync caching architecture."""
 
+from datetime import UTC, datetime
 from unittest.mock import MagicMock, patch
-from datetime import datetime, UTC
-from fastapi.testclient import TestClient
+
 import pytest
+from fastapi.testclient import TestClient
 
 from mindthespot.api.app import create_app
 from mindthespot.api.service import SpotDataService
-from mindthespot.api.schemas import CacheStatusResponse, CacheRefreshResponse
 
 
 @pytest.fixture

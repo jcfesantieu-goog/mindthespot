@@ -17,7 +17,6 @@ from mindthespot.api.schemas import (
     WatchlistCreateRequest,
 )
 from mindthespot.api.service import SpotDataService
-
 from mindthespot.config.models import WatchlistEntry
 
 router = APIRouter(prefix="/api")
