@@ -86,10 +86,18 @@ SELECT
   ) AS z_score,
   lp.hourly_price,
   lp.currency,
+  ROUND(
+    ((lp.hourly_price - pp.prev_hourly_price) / NULLIF(pp.prev_hourly_price, 0)) * 100.0,
+    2
+  ) AS price_change_pct,
   CASE
-    WHEN pp.prev_hourly_price IS NOT NULL AND lp.hourly_price > pp.prev_hourly_price * 1.10 THEN TRUE
+    WHEN pp.prev_hourly_price IS NOT NULL AND lp.hourly_price > pp.prev_hourly_price * 1.05 THEN TRUE
     ELSE FALSE
   END AS price_hike_detected,
+  CASE
+    WHEN pp.prev_hourly_price IS NOT NULL AND lp.hourly_price < pp.prev_hourly_price * 0.95 THEN TRUE
+    ELSE FALSE
+  END AS price_drop_detected,
   CASE
     WHEN (
       ((w.mean_recent_7d - w.mean_baseline_23d) / GREATEST(COALESCE(w.std_baseline_23d, 0.02), 0.02) >= 2.5 AND w.mean_recent_7d >= 0.20)

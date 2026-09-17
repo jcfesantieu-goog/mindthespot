@@ -32,7 +32,9 @@ class AnomalyResponse(BaseModel):
     hourly_price: float
     severity: str  # CRITICAL, ELEVATED, STABLE
     price_hike_detected: bool = False
+    price_drop_detected: bool = False
     price_hike_pct: float | None = 0.0
+    price_change_pct: float | None = 0.0
     pivot_count: int = 0
 
 
@@ -51,6 +53,9 @@ class PoolSummaryResponse(BaseModel):
     avg_30d_rate: float
     hourly_price: float
     severity: str
+    price_hike_detected: bool = False
+    price_drop_detected: bool = False
+    price_change_pct: float | None = 0.0
 
 
 class PoolHistoryResponse(BaseModel):

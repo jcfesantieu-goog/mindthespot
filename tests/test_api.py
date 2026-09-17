@@ -89,7 +89,9 @@ def test_get_pool_pivots(client):
 
     first_pivot = data["pivots"][0]
     assert first_pivot["preemption_savings"] > 0
-    assert first_pivot["pivot_type"] in ["ZONE_PIVOT", "FAMILY_PIVOT"]
+    assert first_pivot["pivot_type"] in ["SAME_ZONE_PIVOT", "ZONE_PIVOT", "FAMILY_PIVOT"]
+    assert "cost_savings_pct" in first_pivot
+    assert "priority_rank" in first_pivot
 
 
 def test_watchlist_workflow(client):
@@ -114,6 +116,40 @@ def test_watchlist_workflow(client):
     # 3. Verify watchlist updated
     get_res2 = client.get("/api/v1/watchlist")
     assert len(get_res2.json()) == initial_count + 1
+
+    # 4. Toggle watchlist pool
+    toggle_res = client.post(
+        "/api/v1/watchlist/toggle",
+        json={
+            "region": "us-east4",
+            "zone": "us-east4-a",
+            "machine_type": "c4a-standard-16",
+            "is_watchlist": True,
+            "custom_label": "Starred Test",
+        },
+    )
+    assert toggle_res.status_code == 200
+    assert toggle_res.json()["is_watchlist"] is True
+
+    # 5. Remove watchlist pool via DELETE
+    del_res = client.delete("/api/v1/watchlist/us-east4/us-east4-a/c4a-standard-16")
+    assert del_res.status_code == 200
+    assert del_res.json()["status"] == "success"
+
+
+def test_anomalies_price_filter(client):
+    # Test anomalies with price_filter
+    hike_res = client.get("/api/v1/anomalies?price_filter=HIKE")
+    assert hike_res.status_code == 200
+    hikes = hike_res.json()
+    for h in hikes:
+        assert h["price_hike_detected"] is True
+
+    drop_res = client.get("/api/v1/anomalies?price_filter=DROP")
+    assert drop_res.status_code == 200
+    drops = drop_res.json()
+    for d in drops:
+        assert d["price_drop_detected"] is True
 
 
 def test_spa_serving(tmp_path, monkeypatch):

@@ -58,12 +58,17 @@ def list_anomalies(
         bool,
         Query(description="Restrict anomalies strictly to user watchlist"),
     ] = False,
+    price_filter: Annotated[
+        str | None,
+        Query(description="Filter by price shift: 'HIKE' or 'DROP'"),
+    ] = None,
 ) -> list[AnomalyResponse]:
     """Retrieve active preemption and pricing regime shifts."""
     return service.get_anomalies(
         severity=severity,
         region=region,
         watchlist_only=watchlist_only,
+        price_filter=price_filter,
     )
 
 
@@ -145,6 +150,50 @@ def add_watchlist_entry(
         "status": "success",
         "message": f"Added {len(added_keys)} pool targets to watchlist",
         "targets": added_keys,
+    }
+
+
+@router.delete(
+    "/v1/watchlist/{region}/{zone}/{machine_type}",
+    response_model=dict,
+    tags=["Watchlist"],
+)
+def remove_watchlist_entry(
+    region: str,
+    zone: str,
+    machine_type: str,
+    service: Annotated[SpotDataService, Depends(get_spot_service)],
+) -> dict:
+    """Remove a specific instance pool from watchlist."""
+    success = service.remove_watchlist_pool(region, zone, machine_type)
+    return {
+        "status": "success",
+        "message": f"Removed {region}/{zone}/{machine_type} from watchlist",
+        "success": success,
+    }
+
+
+@router.post(
+    "/v1/watchlist/toggle",
+    response_model=dict,
+    tags=["Watchlist"],
+)
+def toggle_watchlist_entry(
+    req: dict,
+    service: Annotated[SpotDataService, Depends(get_spot_service)],
+) -> dict:
+    """Toggle watchlist status for an individual instance pool."""
+    region = req.get("region", "")
+    zone = req.get("zone", "")
+    machine_type = req.get("machine_type", "")
+    is_watchlist = bool(req.get("is_watchlist", True))
+    label = req.get("custom_label")
+    success = service.toggle_watchlist_pool(region, zone, machine_type, is_watchlist, label)
+    return {
+        "status": "success",
+        "is_watchlist": is_watchlist,
+        "pool": f"{region}/{zone}/{machine_type}",
+        "success": success,
     }
 
 

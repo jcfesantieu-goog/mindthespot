@@ -1,16 +1,18 @@
 import React, { useState } from "react";
-import { Plus, Star, ShieldCheck, MapPin } from "lucide-react";
+import { Plus, Star, ShieldCheck, MapPin, Trash2 } from "lucide-react";
 import { WatchlistEntry } from "../types";
 import { addWatchlistTarget } from "../lib/api";
 
 interface WatchlistManagerProps {
   watchlist: WatchlistEntry[];
   onRefresh: () => void;
+  onRemoveTarget?: (entry: WatchlistEntry) => void;
 }
 
 export const WatchlistManager: React.FC<WatchlistManagerProps> = ({
   watchlist,
   onRefresh,
+  onRemoveTarget,
 }) => {
   const [isAdding, setIsAdding] = useState(false);
   const [name, setName] = useState("");
@@ -173,9 +175,20 @@ export const WatchlistManager: React.FC<WatchlistManagerProps> = ({
                   <Star className="w-3.5 h-3.5 text-amber-400 fill-amber-400" />
                   {entry.name || "Default Workload"}
                 </span>
-                <span className="text-[10px] font-mono px-2 py-0.5 rounded bg-slate-800 text-slate-300 border border-slate-700">
-                  {entry.region}
-                </span>
+                <div className="flex items-center gap-1.5">
+                  <span className="text-[10px] font-mono px-2 py-0.5 rounded bg-slate-800 text-slate-300 border border-slate-700">
+                    {entry.region}
+                  </span>
+                  {onRemoveTarget && (
+                    <button
+                      onClick={() => onRemoveTarget(entry)}
+                      className="p-1 rounded text-slate-500 hover:text-red-400 hover:bg-slate-800 transition-colors"
+                      title="Remove from Watchlist"
+                    >
+                      <Trash2 className="w-3.5 h-3.5" />
+                    </button>
+                  )}
+                </div>
               </div>
 
               <div className="space-y-2 mt-3 font-mono text-xs">

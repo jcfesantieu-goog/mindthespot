@@ -104,10 +104,20 @@ def test_find_pivot_candidates_for_congested_pool():
             "recent_7d_rate": 0.05,
             "hourly_price": 0.25,
         },
-        # Equivalent family candidate (C3D in europe-west4-a, stable, 4% preemption, cheaper)
+        # Equivalent family candidate in same zone (C3D in europe-west4-a, stable, 4% preemption, cheaper)
         {
             "region": "europe-west4",
             "zone": "europe-west4-a",
+            "machine_type": "c3d-standard-16",
+            "family": "c3d",
+            "severity": "STABLE",
+            "recent_7d_rate": 0.04,
+            "hourly_price": 0.22,
+        },
+        # Equivalent family candidate in sibling zone (C3D in europe-west4-b)
+        {
+            "region": "europe-west4",
+            "zone": "europe-west4-b",
             "machine_type": "c3d-standard-16",
             "family": "c3d",
             "severity": "STABLE",
@@ -137,17 +147,23 @@ def test_find_pivot_candidates_for_congested_pool():
     ]
 
     pivots = find_pivot_candidates_for_pool(congested_pool, all_pools)
-    assert len(pivots) == 2
+    assert len(pivots) == 3
 
     types = {p.pivot_type for p in pivots}
+    assert "SAME_ZONE_PIVOT" in types
     assert "ZONE_PIVOT" in types
     assert "FAMILY_PIVOT" in types
+
+    # First pivot MUST be SAME_ZONE_PIVOT (Priority 1)
+    assert pivots[0].pivot_type == "SAME_ZONE_PIVOT"
+    assert pivots[0].pivot_zone == "europe-west4-a"
+    assert pivots[0].cost_savings_pct > 0.0
 
     zone_pivot = next(p for p in pivots if p.pivot_type == "ZONE_PIVOT")
     assert zone_pivot.pivot_zone == "europe-west4-b"
     assert zone_pivot.preemption_savings == 0.37
 
-    family_pivot = next(p for p in pivots if p.pivot_type == "FAMILY_PIVOT")
-    assert family_pivot.pivot_family == "c3d"
-    assert family_pivot.preemption_savings == 0.38
-    assert family_pivot.cost_difference == 0.03
+    same_zone_pivot = next(p for p in pivots if p.pivot_type == "SAME_ZONE_PIVOT")
+    assert same_zone_pivot.pivot_family == "c3d"
+    assert same_zone_pivot.preemption_savings == 0.38
+    assert same_zone_pivot.cost_difference == 0.03

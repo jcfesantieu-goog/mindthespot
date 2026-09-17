@@ -7,12 +7,14 @@ interface PoolExplorerProps {
   pools: PoolSummary[];
   onSelectPool: (pool: PoolSummary) => void;
   onViewPivots: (pool: PoolSummary) => void;
+  onToggleWatchlist?: (pool: PoolSummary) => void;
 }
 
 export const PoolExplorer: React.FC<PoolExplorerProps> = ({
   pools,
   onSelectPool,
   onViewPivots,
+  onToggleWatchlist,
 }) => {
   const [searchTerm, setSearchTerm] = useState("");
   const [selectedRegion, setSelectedRegion] = useState<string>("ALL");
@@ -179,10 +181,24 @@ export const PoolExplorer: React.FC<PoolExplorerProps> = ({
                       className="hover:bg-slate-850/50 transition-colors group"
                     >
                       <td className="py-3 px-4 font-bold text-slate-200">
-                        <div className="flex items-center gap-1.5">
-                          {pool.is_watchlist && (
-                            <Star className="w-3.5 h-3.5 text-amber-400 fill-amber-400 flex-shrink-0" />
-                          )}
+                        <div className="flex items-center gap-2">
+                          <button
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              onToggleWatchlist?.(pool);
+                            }}
+                            className="p-1 rounded hover:bg-slate-800 transition-colors"
+                            title={pool.is_watchlist ? "Remove from Watchlist" : "Add to Watchlist"}
+                          >
+                            <Star
+                              className={cn(
+                                "w-4 h-4 transition-colors",
+                                pool.is_watchlist
+                                  ? "text-amber-400 fill-amber-400"
+                                  : "text-slate-600 hover:text-amber-400"
+                              )}
+                            />
+                          </button>
                           <span>{pool.machine_type}</span>
                           {pool.custom_label && (
                             <span className="text-[10px] text-amber-300 bg-amber-950/60 px-1.5 py-0.5 rounded border border-amber-800/40">
@@ -214,8 +230,28 @@ export const PoolExplorer: React.FC<PoolExplorerProps> = ({
                         </span>
                       </td>
                       <td className="py-3 px-4 text-slate-400">{formatPercent(pool.avg_30d_rate)}</td>
-                      <td className="py-3 px-4 text-emerald-400 font-semibold">
-                        {formatPrice(pool.hourly_price)}
+                      <td className="py-3 px-4">
+                        <div className="flex items-center gap-1.5 font-mono">
+                          <span className="text-emerald-400 font-semibold">
+                            {formatPrice(pool.hourly_price)}
+                          </span>
+                          {pool.price_hike_detected && (
+                            <span
+                              className="text-[10px] text-rose-300 font-bold bg-rose-950/60 px-1 py-0.2 rounded border border-rose-800/40"
+                              title="Recent Spot Price Hike"
+                            >
+                              ↗
+                            </span>
+                          )}
+                          {pool.price_drop_detected && (
+                            <span
+                              className="text-[10px] text-emerald-300 font-bold bg-emerald-950/60 px-1 py-0.2 rounded border border-emerald-800/40"
+                              title="Recent Spot Price Drop"
+                            >
+                              ↘
+                            </span>
+                          )}
+                        </div>
                       </td>
                       <td className="py-3 px-4">
                         <span

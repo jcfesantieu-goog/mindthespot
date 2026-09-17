@@ -13,11 +13,13 @@ export async function fetchAnomalies(params?: {
   severity?: Severity;
   region?: string;
   watchlistOnly?: boolean;
+  priceFilter?: "HIKE" | "DROP";
 }): Promise<AnomalyItem[]> {
   const query = new URLSearchParams();
   if (params?.severity) query.set("severity", params.severity);
   if (params?.region) query.set("region", params.region);
   if (params?.watchlistOnly) query.set("watchlist_only", "true");
+  if (params?.priceFilter) query.set("price_filter", params.priceFilter);
 
   const res = await fetch(`${BASE_URL}/v1/anomalies?${query.toString()}`);
   if (!res.ok) throw new Error(`Failed to fetch anomalies: ${res.statusText}`);
@@ -87,6 +89,37 @@ export async function addWatchlistTarget(entry: {
     body: JSON.stringify(entry),
   });
   if (!res.ok) throw new Error(`Failed to add watchlist: ${res.statusText}`);
+}
+
+export async function toggleWatchlistPool(payload: {
+  region: string;
+  zone: string;
+  machine_type: string;
+  is_watchlist: boolean;
+  custom_label?: string | null;
+}): Promise<void> {
+  const res = await fetch(`${BASE_URL}/v1/watchlist/toggle`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(payload),
+  });
+  if (!res.ok) throw new Error(`Failed to toggle watchlist pool: ${res.statusText}`);
+}
+
+export async function deleteWatchlistPool(
+  region: string,
+  zone: string,
+  machine_type: string
+): Promise<void> {
+  const res = await fetch(
+    `${BASE_URL}/v1/watchlist/${encodeURIComponent(region)}/${encodeURIComponent(
+      zone
+    )}/${encodeURIComponent(machine_type)}`,
+    {
+      method: "DELETE",
+    }
+  );
+  if (!res.ok) throw new Error(`Failed to delete watchlist pool: ${res.statusText}`);
 }
 
 export interface UserContextResponse {

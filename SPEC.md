@@ -582,12 +582,14 @@ export const AnomalyCard: React.FC<AnomalyCardProps> = ({ anomaly, onSelectPivot
 - [x] **Catalog Coverage:** Successfully crawls default catalog (`c4d`, `c3d`, `c4a`, `c2`, `c3`, `n2`, `n2d`, `e2`) across 6 core regions + custom watchlist entries in $< 5$ minutes.
 - [x] **Rate Limiting:** Zero `429 Quota Exceeded` errors during a 1,000-request crawl run.
 - [x] **Data Integrity:** BigQuery tables populated with clean 30-day preemption points and 1-year price intervals.
-- [x] **Anomaly Precision:** Accurately flags simulated preemption spikes ($\mu_{7d}$ doubling with $Z \ge 2.5$) and 10%+ price hikes without false-positive noise on zero-preemption pools.
-- [x] **Actionable Pivots:** For any `CRITICAL` pool, dashboard immediately suggests at least one lower-risk sibling zone or equivalent family candidate.
+- [x] **Anomaly Precision:** Accurately flags simulated preemption spikes ($\mu_{7d}$ doubling with $Z \ge 2.5$), elevated risk ($Z \ge 1.8$), price hikes ($\ge +5\%$), and price drops ($\le -5\%$) without false-positive noise on zero-preemption pools.
+- [x] **Actionable Pivots:** For any `CRITICAL` pool, dashboard immediately suggests prioritized candidates (Tier 1 Same-Zone, Tier 2 Sibling Zone, Tier 3 Equivalent Family) with percentage and dollar savings.
 - [x] **Modern UI Performance:** React dashboard loads in $< 1.5$ seconds, features responsive dark/light mode, and renders interactive Recharts time-series curves with zero lag.
 - [x] **Zero-Trust Access & Edge Ingress:** Global External HTTPS Load Balancer with dynamic `sslip.io` wildcard FQDN (`spot-8-232-252-55.sslip.io`), automated Google-Managed SSL certificate, and Cloud IAP authentication for enterprise users.
 - [x] **DRS Compliance & Network Security:** Cloud Run locked down to `INGRESS_TRAFFIC_INTERNAL_LOAD_BALANCER` behind Serverless NEG, invoked via IAP Service Agent delegation (`roles/run.invoker`) with `custom_audiences`.
 - [x] **Automated Keyless GitOps:** End-to-end continuous deployment via GitHub Actions using Workload Identity Federation (WIF) with multi-stage Docker build and declarative Terraform apply.
 - [x] **Hybrid In-Memory Caching & Sub-5ms Serving ([ADR 002](docs/adr/002-hybrid-prewarm-background-sync-caching.md)):** BigQuery startup pre-warming and asynchronous background sync delivering instant UI rendering (< 5ms response times) with zero BigQuery concurrency quota consumption and resilient offline fallback.
+- [x] **Dual-Layer Watchlist & Prioritized Fallback Pivots ([ADR 003](docs/adr/003-dual-layer-watchlist-and-prioritized-fallback-pivots.md)):** Dual-layer (browser `localStorage` + backend API) persistence for 1-click pool starring, 3-tier fallback engine prioritizing same-zone instances to eliminate cross-zone egress and PD detachment, and direct deep-link preemption inspection for candidates.
+
 
 

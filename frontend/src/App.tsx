@@ -15,6 +15,8 @@ import {
   fetchPivots,
   fetchPools,
   fetchWatchlist,
+  toggleWatchlistPool,
+  deleteWatchlistPool,
   UserContextResponse,
 } from "./lib/api";
 import { SituationRoom } from "./components/SituationRoom";
@@ -49,6 +51,8 @@ export const App: React.FC = () => {
     pivots: PivotCandidate[];
   } | null>(null);
 
+  const getStorageKey = (email?: string) => `mindthespot_watchlist_${email || "anonymous"}`;
+
   const loadAllData = async () => {
     setIsRefreshing(true);
     try {
@@ -58,16 +62,106 @@ export const App: React.FC = () => {
         fetchWatchlist(),
         fetchCurrentUser(),
       ]);
-      if (anomRes.status === "fulfilled") setAnomalies(anomRes.value);
-      if (poolRes.status === "fulfilled") setPools(poolRes.value);
-      if (watchRes.status === "fulfilled") setWatchlist(watchRes.value);
+
+      const email = userRes.status === "fulfilled" ? userRes.value.email : undefined;
+      const storageKey = getStorageKey(email);
+      let localStarred: string[] = [];
+      try {
+        const raw = localStorage.getItem(storageKey);
+        if (raw) localStarred = JSON.parse(raw);
+      } catch (e) {
+        console.warn("Failed to parse local watchlist cache", e);
+      }
+
       if (userRes.status === "fulfilled") setUserContext(userRes.value);
+      if (watchRes.status === "fulfilled") setWatchlist(watchRes.value);
+
+      if (poolRes.status === "fulfilled") {
+        const enrichedPools = poolRes.value.map((p) => ({
+          ...p,
+          is_watchlist: p.is_watchlist || localStarred.includes(p.pool_key),
+        }));
+        setPools(enrichedPools);
+      }
+
+      if (anomRes.status === "fulfilled") {
+        const enrichedAnomalies = anomRes.value.map((a) => ({
+          ...a,
+          is_watchlist: a.is_watchlist || localStarred.includes(a.pool_key),
+        }));
+        setAnomalies(enrichedAnomalies);
+      }
+
       setLastRefreshed(new Date().toLocaleTimeString());
     } catch (err) {
       console.error("Error loading MindTheSpot data:", err);
     } finally {
       setLoading(false);
       setIsRefreshing(false);
+    }
+  };
+
+  const handleToggleWatchlist = async (pool: PoolSummary) => {
+    const nextState = !pool.is_watchlist;
+
+    // 1. Optimistic UI update
+    setPools((prev) =>
+      prev.map((p) => (p.pool_key === pool.pool_key ? { ...p, is_watchlist: nextState } : p))
+    );
+    setAnomalies((prev) =>
+      prev.map((a) => (a.pool_key === pool.pool_key ? { ...a, is_watchlist: nextState } : a))
+    );
+
+    // 2. Client-side LocalStorage Persistence
+    try {
+      const storageKey = getStorageKey(userContext?.email);
+      const raw = localStorage.getItem(storageKey);
+      let starred: string[] = raw ? JSON.parse(raw) : [];
+      if (nextState) {
+        if (!starred.includes(pool.pool_key)) starred.push(pool.pool_key);
+      } else {
+        starred = starred.filter((k) => k !== pool.pool_key);
+      }
+      localStorage.setItem(storageKey, JSON.stringify(starred));
+    } catch (e) {
+      console.warn("Error updating localStorage watchlist", e);
+    }
+
+    // 3. Backend Persistence
+    try {
+      await toggleWatchlistPool({
+        region: pool.region,
+        zone: pool.zone,
+        machine_type: pool.machine_type,
+        is_watchlist: nextState,
+        custom_label: pool.custom_label,
+      });
+    } catch (err) {
+      console.error("Failed to sync watchlist to server:", err);
+    }
+  };
+
+  const handleRemoveWatchlistTarget = async (entry: WatchlistEntry) => {
+    try {
+      const storageKey = getStorageKey(userContext?.email);
+      const raw = localStorage.getItem(storageKey);
+      let starred: string[] = raw ? JSON.parse(raw) : [];
+
+      for (const mt of entry.machine_types) {
+        for (const zone of entry.zones.length > 0 ? entry.zones : [`${entry.region}-a`]) {
+          const key = `${entry.region}/${zone}/${mt}`;
+          starred = starred.filter((k) => k !== key);
+          try {
+            await deleteWatchlistPool(entry.region, zone, mt);
+          } catch (e) {
+            // continue deleting remaining
+          }
+        }
+      }
+      localStorage.setItem(storageKey, JSON.stringify(starred));
+      await loadAllData();
+    } catch (err) {
+      console.error("Failed to remove watchlist target:", err);
     }
   };
 
@@ -244,11 +338,16 @@ export const App: React.FC = () => {
                 onViewPivots={(p) =>
                   handleOpenPivots(p.region, p.zone, p.machine_type)
                 }
+                onToggleWatchlist={handleToggleWatchlist}
               />
             )}
 
             {activeTab === "watchlist" && (
-              <WatchlistManager watchlist={watchlist} onRefresh={loadAllData} />
+              <WatchlistManager
+                watchlist={watchlist}
+                onRefresh={loadAllData}
+                onRemoveTarget={handleRemoveWatchlistTarget}
+              />
             )}
           </>
         )}
@@ -272,6 +371,13 @@ export const App: React.FC = () => {
           onClose={() => setPivotTarget(null)}
           poolKey={pivotTarget.poolKey}
           pivots={pivotTarget.pivots}
+          onInspectPool={(candidate) =>
+            setInspectTarget({
+              region: candidate.region,
+              zone: candidate.zone,
+              machineType: candidate.machine_type,
+            })
+          }
         />
       )}
 

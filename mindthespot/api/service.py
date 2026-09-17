@@ -147,16 +147,25 @@ class SpotDataService:
             # Price intervals (1-year history)
             # Inject a +12% price hike for c4d in europe-west4
             has_price_hike = target.region == "europe-west4" and target.family == "c4d"
-            prev_price = round(hourly_price * 0.88, 4) if has_price_hike else hourly_price
+            # Inject a -15% price drop for c3d in europe-west1
+            has_price_drop = target.region == "europe-west1" and target.family == "c3d"
+
+            if has_price_hike:
+                prev_price = round(hourly_price * 0.88, 4)
+            elif has_price_drop:
+                prev_price = round(hourly_price * 1.15, 4)
+            else:
+                prev_price = hourly_price
+
             intervals = [
                 PriceIntervalRecord(
                     start_time=(base_date - timedelta(days=335)).isoformat(),
-                    end_time=base_date.isoformat() if has_price_hike else None,
+                    end_time=base_date.isoformat() if (has_price_hike or has_price_drop) else None,
                     hourly_price=prev_price,
                     currency="USD",
                 )
             ]
-            if has_price_hike:
+            if has_price_hike or has_price_drop:
                 intervals.append(
                     PriceIntervalRecord(
                         start_time=base_date.isoformat(),
@@ -167,7 +176,12 @@ class SpotDataService:
                 )
 
             is_hike, hike_pct = detect_price_step_change(
-                hourly_price, prev_price if has_price_hike else None
+                hourly_price, prev_price if (has_price_hike or has_price_drop) else None
+            )
+            price_change_pct = (
+                round(((hourly_price - prev_price) / prev_price) * 100.0, 2)
+                if prev_price > 0
+                else 0.0
             )
 
             self._synthetic_pool_cache[key] = {
@@ -177,7 +191,9 @@ class SpotDataService:
                 "metrics": metrics,
                 "hourly_price": hourly_price,
                 "price_hike_detected": is_hike,
+                "price_drop_detected": has_price_drop or (price_change_pct <= -5.0),
                 "price_hike_pct": hike_pct,
+                "price_change_pct": price_change_pct,
             }
 
         self._data_source = "synthetic"
@@ -302,10 +318,15 @@ class SpotDataService:
                     else (intervals[-1].hourly_price if intervals else 0.0)
                 )
 
-                price_hike_pct = 0.0
-                if len(intervals) >= 2 and intervals[-2].hourly_price > 0:
+                price_change_pct = 0.0
+                if getattr(s, "price_change_pct", None) is not None:
+                    price_change_pct = float(s.price_change_pct)
+                elif len(intervals) >= 2 and intervals[-2].hourly_price > 0:
                     prev_p = intervals[-2].hourly_price
-                    price_hike_pct = round(((current_price - prev_p) / prev_p) * 100.0, 2)
+                    price_change_pct = round(((current_price - prev_p) / prev_p) * 100.0, 2)
+
+                price_hike_detected = bool(getattr(s, "price_hike_detected", False)) or (price_change_pct >= 5.0)
+                price_drop_detected = bool(getattr(s, "price_drop_detected", False)) or (price_change_pct <= -5.0)
 
                 new_cache[key] = {
                     "target": target,
@@ -313,8 +334,10 @@ class SpotDataService:
                     "intervals": intervals,
                     "metrics": metrics,
                     "hourly_price": round(current_price, 6),
-                    "price_hike_detected": bool(s.price_hike_detected),
-                    "price_hike_pct": price_hike_pct,
+                    "price_hike_detected": price_hike_detected,
+                    "price_drop_detected": price_drop_detected,
+                    "price_hike_pct": price_change_pct if price_change_pct > 0 else 0.0,
+                    "price_change_pct": price_change_pct,
                 }
 
             with self._lock:
@@ -412,6 +435,9 @@ class SpotDataService:
                     avg_30d_rate=round(avg_30d, 4),
                     hourly_price=data["hourly_price"],
                     severity=metrics["severity"],
+                    price_hike_detected=bool(data.get("price_hike_detected", False)),
+                    price_drop_detected=bool(data.get("price_drop_detected", False)),
+                    price_change_pct=float(data.get("price_change_pct") or 0.0),
                 )
             )
 
@@ -431,9 +457,10 @@ class SpotDataService:
         severity: str | None = None,
         region: str | None = None,
         watchlist_only: bool = False,
+        price_filter: str | None = None,
     ) -> list[AnomalyResponse]:
         """Fetch active regime shift anomalies with candidate pivot counts."""
-        cache_key = f"anomalies:{severity}:{region}:{watchlist_only}"
+        cache_key = f"anomalies:{severity}:{region}:{watchlist_only}:{price_filter}"
         cached = get_cached(cache_key)
         if cached is not None:
             return cached
@@ -460,8 +487,10 @@ class SpotDataService:
             target: InstancePoolTarget = data["target"]
             metrics = data["metrics"]
             sev = metrics["severity"]
+            is_hike = bool(data.get("price_hike_detected", False))
+            is_drop = bool(data.get("price_drop_detected", False))
 
-            if sev == "STABLE" and not data["price_hike_detected"]:
+            if sev == "STABLE" and not is_hike and not is_drop:
                 continue
 
             if severity and sev != severity.upper():
@@ -470,6 +499,13 @@ class SpotDataService:
                 continue
             if watchlist_only and not target.is_watchlist:
                 continue
+
+            if price_filter:
+                pf = price_filter.strip().upper()
+                if pf == "HIKE" and not is_hike:
+                    continue
+                if pf == "DROP" and not is_drop:
+                    continue
 
             # Calculate pivot options count
             pivots = find_pivot_candidates_for_pool(
@@ -501,8 +537,10 @@ class SpotDataService:
                     z_score=metrics["z_score"],
                     hourly_price=data["hourly_price"],
                     severity=sev,
-                    price_hike_detected=bool(data.get("price_hike_detected", False)),
+                    price_hike_detected=is_hike,
+                    price_drop_detected=is_drop,
                     price_hike_pct=float(data.get("price_hike_pct") or 0.0),
+                    price_change_pct=float(data.get("price_change_pct") or 0.0),
                     pivot_count=len(pivots),
                 )
             )
@@ -619,3 +657,33 @@ class SpotDataService:
             for z in req.zones:
                 added_keys.append(f"{req.region}/{z}/{mt}")
         return added_keys
+
+    def toggle_watchlist_pool(
+        self,
+        region: str,
+        zone: str,
+        machine_type: str,
+        is_watchlist: bool,
+        custom_label: str | None = None,
+    ) -> bool:
+        """Toggle watchlist flag and custom label on an individual pool."""
+        key = f"{region.strip().lower()}/{zone.strip().lower()}/{machine_type.strip().lower()}"
+        with self._lock:
+            if key in self._pool_cache:
+                self._pool_cache[key]["target"].is_watchlist = is_watchlist
+                if custom_label:
+                    self._pool_cache[key]["target"].custom_label = custom_label
+                elif not is_watchlist:
+                    self._pool_cache[key]["target"].custom_label = None
+            clear_cache()
+            return True
+
+    def remove_watchlist_pool(
+        self,
+        region: str,
+        zone: str,
+        machine_type: str,
+    ) -> bool:
+        """Remove a pool from watchlist and delete custom watchlist entries."""
+        return self.toggle_watchlist_pool(region, zone, machine_type, is_watchlist=False)
+

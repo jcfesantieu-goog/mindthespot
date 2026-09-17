@@ -16,7 +16,9 @@ export interface AnomalyItem {
   hourly_price: number;
   severity: Severity;
   price_hike_detected: boolean;
+  price_drop_detected?: boolean;
   price_hike_pct: number;
+  price_change_pct?: number;
   pivot_count: number;
 }
 
@@ -33,6 +35,9 @@ export interface PoolSummary {
   avg_30d_rate: number;
   hourly_price: number;
   severity: Severity;
+  price_hike_detected?: boolean;
+  price_drop_detected?: boolean;
+  price_change_pct?: number;
 }
 
 export interface DailyRate {
@@ -67,7 +72,8 @@ export interface PoolHistory {
 }
 
 export interface PivotCandidate {
-  pivot_type: "ZONE_PIVOT" | "FAMILY_PIVOT";
+  pivot_type: "SAME_ZONE_PIVOT" | "ZONE_PIVOT" | "FAMILY_PIVOT";
+  priority_rank?: number;
   region: string;
   origin_zone: string;
   origin_machine_type: string;
@@ -81,6 +87,7 @@ export interface PivotCandidate {
   pivot_hourly_price: number;
   preemption_savings: number;
   cost_difference: number;
+  cost_savings_pct?: number;
   recommendation_reason: string;
 }
 

@@ -9,6 +9,8 @@ import {
   MapPin,
   TrendingDown,
   DollarSign,
+  Eye,
+  ShieldCheck,
 } from "lucide-react";
 import { PivotCandidate } from "../types";
 import { cn, formatPercent, formatPrice } from "../lib/utils";
@@ -18,6 +20,7 @@ interface PivotModalProps {
   onClose: () => void;
   poolKey: string;
   pivots: PivotCandidate[];
+  onInspectPool?: (pool: { region: string; zone: string; machine_type: string }) => void;
 }
 
 export const PivotModal: React.FC<PivotModalProps> = ({
@@ -25,6 +28,7 @@ export const PivotModal: React.FC<PivotModalProps> = ({
   onClose,
   poolKey,
   pivots,
+  onInspectPool,
 }) => {
   const [copiedIndex, setCopiedIndex] = useState<number | null>(null);
 
@@ -74,12 +78,20 @@ gcloud compute instances create spot-worker-${pivot.pivot_family} \\
           <div className="text-center py-12 text-slate-400">
             <Shuffle className="w-10 h-10 mx-auto text-slate-600 mb-3" />
             <p className="text-sm font-medium">No candidate fallback pivots currently meet stability criteria.</p>
-            <p className="text-xs text-slate-500 mt-1">Try expanding to sibling regions in your custom watchlist.</p>
+            <p className="text-xs text-slate-500 mt-1">Try expanding to sibling regions or families in your custom watchlist.</p>
           </div>
         ) : (
           <div className="space-y-4 max-h-[60vh] overflow-y-auto pr-1">
             {pivots.map((pivot, idx) => {
+              const isSameZone = pivot.pivot_type === "SAME_ZONE_PIVOT";
               const isZonePivot = pivot.pivot_type === "ZONE_PIVOT";
+
+              const savingsPct =
+                pivot.cost_savings_pct !== undefined && pivot.cost_savings_pct !== null
+                  ? pivot.cost_savings_pct
+                  : pivot.origin_hourly_price > 0
+                  ? Number(((pivot.cost_difference / pivot.origin_hourly_price) * 100).toFixed(1))
+                  : 0;
 
               return (
                 <div
@@ -87,39 +99,69 @@ gcloud compute instances create spot-worker-${pivot.pivot_family} \\
                   className="rounded-xl border border-slate-800 bg-slate-950/60 p-4 transition-all hover:border-slate-700"
                 >
                   <div className="flex items-center justify-between flex-wrap gap-2 mb-3">
-                    <div className="flex items-center gap-2">
+                    <div className="flex items-center gap-2 flex-wrap">
                       <span
                         className={cn(
-                          "px-2.5 py-1 rounded-md text-xs font-bold uppercase tracking-wider font-mono flex items-center gap-1",
-                          isZonePivot
-                            ? "bg-blue-500/20 text-blue-400 border border-blue-500/40"
-                            : "bg-purple-500/20 text-purple-400 border border-purple-500/40"
+                          "px-2.5 py-1 rounded-md text-xs font-bold uppercase tracking-wider font-mono flex items-center gap-1.5",
+                          isSameZone
+                            ? "bg-emerald-500/20 text-emerald-300 border border-emerald-500/40"
+                            : isZonePivot
+                            ? "bg-blue-500/20 text-blue-300 border border-blue-500/40"
+                            : "bg-purple-500/20 text-purple-300 border border-purple-500/40"
                         )}
                       >
-                        {isZonePivot ? <MapPin className="w-3 h-3" /> : <Layers className="w-3 h-3" />}
-                        {isZonePivot ? "Sibling Zone Pivot" : "Equivalent Family Pivot"}
+                        {isSameZone ? (
+                          <ShieldCheck className="w-3.5 h-3.5 text-emerald-400" />
+                        ) : isZonePivot ? (
+                          <MapPin className="w-3.5 h-3.5 text-blue-400" />
+                        ) : (
+                          <Layers className="w-3.5 h-3.5 text-purple-400" />
+                        )}
+                        {isSameZone
+                          ? "Tier 1: Same Zone Fallback (Zero Disk Detach)"
+                          : isZonePivot
+                          ? "Tier 2: Sibling Zone Pivot (Same Machine)"
+                          : "Tier 3: Equivalent Family Pivot (Same Cores)"}
                       </span>
-                      <span className="text-xs text-slate-400">
+                      <span className="text-xs text-slate-400 font-mono">
                         {pivot.recommendation_reason}
                       </span>
                     </div>
 
-                    <button
-                      onClick={() => handleCopy(pivot, idx)}
-                      className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-xs font-mono font-medium text-slate-200 transition-colors border border-slate-700"
-                    >
-                      {copiedIndex === idx ? (
-                        <>
-                          <Check className="w-3.5 h-3.5 text-emerald-400" />
-                          <span>Copied Snippet!</span>
-                        </>
-                      ) : (
-                        <>
-                          <Copy className="w-3.5 h-3.5 text-slate-400" />
-                          <span>Copy gcloud Run</span>
-                        </>
+                    <div className="flex items-center gap-2">
+                      {onInspectPool && (
+                        <button
+                          onClick={() =>
+                            onInspectPool({
+                              region: pivot.region,
+                              zone: pivot.pivot_zone,
+                              machine_type: pivot.pivot_machine_type,
+                            })
+                          }
+                          className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-xs font-mono font-medium text-cyan-300 hover:text-cyan-200 transition-colors border border-slate-700"
+                          title="Inspect 30-day preemption history for this recommended pivot"
+                        >
+                          <Eye className="w-3.5 h-3.5 text-cyan-400" />
+                          <span>Inspect History</span>
+                        </button>
                       )}
-                    </button>
+                      <button
+                        onClick={() => handleCopy(pivot, idx)}
+                        className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-xs font-mono font-medium text-slate-200 transition-colors border border-slate-700"
+                      >
+                        {copiedIndex === idx ? (
+                          <>
+                            <Check className="w-3.5 h-3.5 text-emerald-400" />
+                            <span>Copied Snippet!</span>
+                          </>
+                        ) : (
+                          <>
+                            <Copy className="w-3.5 h-3.5 text-slate-400" />
+                            <span>Copy gcloud</span>
+                          </>
+                        )}
+                      </button>
+                    </div>
                   </div>
 
                   {/* Comparison Row */}
@@ -143,15 +185,21 @@ gcloud compute instances create spot-worker-${pivot.pivot_family} \\
                         <TrendingDown className="w-3.5 h-3.5" />
                         -{formatPercent(pivot.preemption_savings)} Risk
                       </div>
-                      <div className="text-[10px] text-slate-400 flex items-center gap-1">
-                        <DollarSign className="w-3 h-3 text-emerald-400" />
+                      <div className="text-[11px] text-slate-300 flex items-center gap-1 font-mono">
+                        <DollarSign className="w-3.5 h-3.5 text-emerald-400" />
                         {pivot.cost_difference >= 0 ? (
-                          <span className="text-emerald-400">
-                            Save {formatPrice(pivot.cost_difference)}
+                          <span className="text-emerald-400 font-bold">
+                            Save {formatPrice(pivot.cost_difference)}/hr{" "}
+                            <span className="text-emerald-300 font-semibold">
+                              ({savingsPct > 0 ? `+${savingsPct}%` : `${savingsPct}%`})
+                            </span>
                           </span>
                         ) : (
-                          <span className="text-slate-300">
-                            +{formatPrice(Math.abs(pivot.cost_difference))}
+                          <span className="text-slate-300 font-semibold">
+                            +{formatPrice(Math.abs(pivot.cost_difference))}/hr{" "}
+                            <span className="text-rose-400">
+                              ({savingsPct > 0 ? `+${savingsPct}%` : `${savingsPct}%`})
+                            </span>
                           </span>
                         )}
                       </div>

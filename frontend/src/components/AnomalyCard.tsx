@@ -1,5 +1,14 @@
 import React from "react";
-import { AlertTriangle, ArrowUpRight, TrendingUp, DollarSign, Shuffle, Star } from "lucide-react";
+import {
+  AlertTriangle,
+  ArrowUpRight,
+  ArrowDownRight,
+  TrendingUp,
+  DollarSign,
+  Shuffle,
+  Star,
+  HelpCircle,
+} from "lucide-react";
 import { AnomalyItem } from "../types";
 import { cn, formatPercent, formatPrice, formatSignedPercent, formatSignedZScore } from "../lib/utils";
 
@@ -86,34 +95,60 @@ export const AnomalyCard: React.FC<AnomalyCardProps> = ({
           </div>
         </div>
 
-        <div className="bg-slate-900/60 rounded-lg p-2.5 border border-slate-800/80">
+        <div
+          className="bg-slate-900/60 rounded-lg p-2.5 border border-slate-800/80 cursor-help group relative"
+          title={
+            anomaly.z_score >= 2.5
+              ? "Critical Shift (Z ≥ 2.5σ): Extreme eviction surge (>2.5 std dev over 23d baseline). Probability < 0.6% in normal conditions."
+              : "Elevated Risk (Z ≥ 1.8σ): Statistically significant upward preemption drift (>1.8 std dev). Probability < 3.6%."
+          }
+        >
           <div className="text-slate-400 mb-1 flex items-center justify-between">
-            <span>Z-Score Shift</span>
+            <span className="flex items-center gap-1">
+              <span>Z-Score Shift</span>
+              <HelpCircle className="w-3 h-3 text-slate-500 group-hover:text-cyan-400 transition-colors" />
+            </span>
             <TrendingUp className="w-3.5 h-3.5 text-red-400" />
           </div>
           <div className="text-lg font-bold text-slate-100 font-mono">
             {formatSignedZScore(anomaly.z_score)}
           </div>
           <div className="text-[10px] text-slate-400 mt-0.5">
-            {anomaly.z_score >= 2.5 ? "Severe Congestion" : "Elevated Risk"}
+            {anomaly.z_score >= 2.5
+              ? "Critical Surge (p < 0.6%)"
+              : anomaly.z_score >= 1.8
+              ? "Elevated Risk (p < 3.6%)"
+              : "Moderate Shift"}
           </div>
         </div>
 
       </div>
 
-      {/* Price & Price Hike indicator */}
+      {/* Price & Price Hike / Drop indicator */}
       <div className="flex items-center justify-between text-xs py-2 px-3 rounded-lg bg-slate-900/40 border border-slate-800/60 mb-4 font-mono">
         <div className="flex items-center gap-1.5 text-slate-300">
-          <DollarSign className="w-3.5 h-3.5 text-emerald-400" />
+          <DollarSign className="w-3.5 h-3.5 text-slate-400" />
           <span>Spot Price:</span>
           <span className="font-bold text-slate-100">{formatPrice(anomaly.hourly_price)}</span>
         </div>
-        {anomaly.price_hike_detected && (
-          <span className="flex items-center gap-1 text-[11px] text-red-400 font-semibold bg-red-950/60 px-2 py-0.5 rounded border border-red-800/40">
-            <ArrowUpRight className="w-3 h-3" />
-            +{(anomaly.price_hike_pct * 100).toFixed(0)}% Price Hike
-          </span>
-        )}
+        <div className="flex items-center gap-1">
+          {anomaly.price_hike_detected && (
+            <span className="flex items-center gap-1 text-[11px] text-rose-300 font-semibold bg-rose-950/60 px-2 py-0.5 rounded border border-rose-800/40">
+              <ArrowUpRight className="w-3 h-3 text-rose-400" />
+              {anomaly.price_change_pct
+                ? `${anomaly.price_change_pct > 0 ? "+" : ""}${anomaly.price_change_pct.toFixed(1)}% Hike`
+                : `+${(anomaly.price_hike_pct * 100).toFixed(0)}% Hike`}
+            </span>
+          )}
+          {anomaly.price_drop_detected && (
+            <span className="flex items-center gap-1 text-[11px] text-emerald-300 font-semibold bg-emerald-950/60 px-2 py-0.5 rounded border border-emerald-800/40">
+              <ArrowDownRight className="w-3 h-3 text-emerald-400" />
+              {anomaly.price_change_pct
+                ? `${anomaly.price_change_pct.toFixed(1)}% Drop`
+                : "-5.0% Drop"}
+            </span>
+          )}
+        </div>
       </div>
 
       {/* Card Actions */}
