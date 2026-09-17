@@ -29,7 +29,10 @@ class PivotCandidate(BaseModel):
     """A recommended alternative instance pool."""
 
     pivot_type: str = Field(..., description="'SAME_ZONE_PIVOT', 'ZONE_PIVOT', or 'FAMILY_PIVOT'")
-    priority_rank: int = Field(default=2, description="1=Same Zone Same Size, 2=Sibling Zone Same MT, 3=Sibling Zone Same Size")
+    priority_rank: int = Field(
+        default=2,
+        description="1=Same Zone Same Size, 2=Sibling Zone Same MT, 3=Sibling Zone Same Size",
+    )
     region: str
     origin_zone: str
     origin_machine_type: str
@@ -43,7 +46,9 @@ class PivotCandidate(BaseModel):
     pivot_hourly_price: float
     preemption_savings: float
     cost_difference: float
-    cost_savings_pct: float = Field(default=0.0, description="Cost savings percentage relative to origin pool")
+    cost_savings_pct: float = Field(
+        default=0.0, description="Cost savings percentage relative to origin pool"
+    )
     recommendation_reason: str
 
 
@@ -80,13 +85,16 @@ def find_pivot_candidates_for_pool(
         savings = round(origin_7d - p_7d, 4)
         cost_diff = round(origin_price - p_price, 4)
         savings_pct = (
-            round(((origin_price - p_price) / origin_price) * 100.0, 1)
-            if origin_price > 0
-            else 0.0
+            round(((origin_price - p_price) / origin_price) * 100.0, 1) if origin_price > 0 else 0.0
         )
 
         # 1. Priority 1: Same Zone, Same Core Size, Equivalent Family (zero disk migration!)
-        if p_zone == origin_zone and p_family in allowed_equiv and p_cores == origin_cores and origin_cores > 0:
+        if (
+            p_zone == origin_zone
+            and p_family in allowed_equiv
+            and p_cores == origin_cores
+            and origin_cores > 0
+        ):
             candidates.append(
                 PivotCandidate(
                     pivot_type="SAME_ZONE_PIVOT",
@@ -134,7 +142,12 @@ def find_pivot_candidates_for_pool(
             )
 
         # 3. Priority 3: Sibling Zone Candidate (same core size, equivalent family, different zone)
-        elif p_zone != origin_zone and p_family in allowed_equiv and p_cores == origin_cores and origin_cores > 0:
+        elif (
+            p_zone != origin_zone
+            and p_family in allowed_equiv
+            and p_cores == origin_cores
+            and origin_cores > 0
+        ):
             candidates.append(
                 PivotCandidate(
                     pivot_type="FAMILY_PIVOT",

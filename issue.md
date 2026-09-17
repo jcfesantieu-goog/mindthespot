@@ -111,4 +111,113 @@ We propose a 5-pillar optimization reducing memory consumption from **$> 2.5\tex
 - [x] **Sync & Deploy**: Committed (`e313c7c`), pushed to `main`, and deployed via GitOps CI/CD pipeline (GitHub Actions run `35234464388`).
 - [x] **Production Verification**: Triggered Cloud Run job execution `mindthespot-crawler-jdjpb` in `europe-west4`. Real-time region streaming confirmed directly inserting into BigQuery without OOM (`< 100 MB` memory footprint).
 
+---
+
+# Issue #2: Preemption History Truncation Due to Multi-Day Compressed Intervals & False Critical Alerts
+
+**Status:** Resolved  
+**Severity:** High (Data Fidelity & Anomaly Metric Integrity)  
+**Reported:** 2026-09-17  
+**Affects:** `mindthespot/crawler/client.py`, `mindthespot/storage/bigquery_client.py`, `mindthespot/cli.py`, `sql/views/templates/v_regime_shifts.sql.tpl`, `sql/views/01_v_regime_shifts.sql`, `mindthespot/api/service.py`
+
+---
+
+## 1. Incident Description & Observation
+
+During inspection of instance pool **`c4a-standard-16` in zone `europe-west1-d`** on the MindTheSpot Situation Room dashboard:
+1. **Apparent Staleness**: The preemption rate history chart displayed no data points after **September 3, 2026**, despite successful daily crawler executions through **September 17, 2026** (a 14-day data gap).
+2. **False Critical Regime Shift Alert**: The instance was classified as `CRITICAL` with:
+   - Recent 7-Day Mean ($\mu_{\text{recent}}$): **`21.9%`**
+   - Baseline Mean ($\mu_{\text{baseline}}$): **`1.5%`**
+   - Rate Delta ($\Delta$): **`+20.4%`**
+   - Z-score: **`+9.60σ`**
+3. **Contradiction**: In reality, Google Cloud had 0.0% preemption rates for this instance family throughout the past two weeks.
+
+---
+
+## 2. Root Cause Analysis
+
+### A. Google Compute Engine Capacity History API Interval Compression
+Google Cloud's `compute/beta/projects/{project}/advice/capacityHistory` endpoint compresses contiguous time periods with constant preemption rates into single `[startTime, endTime)` intervals:
+
+```json
+{
+  "preemptionHistory": [
+    {
+      "interval": {
+        "startTime": "2026-09-03T07:00:00Z",
+        "endTime": "2026-09-17T07:00:00Z"
+      },
+      "preemptionRate": 0.0
+    }
+  ]
+}
+```
+
+### B. Crawler Start-Time Truncation
+In `mindthespot/crawler/client.py`, the crawler parsed intervals using only the start timestamp:
+```python
+# PREVIOUS BUGGY CODE:
+dt = entry.get("date") or entry.get("interval", {}).get("startTime", "")[:10]
+```
+For `c4a-standard-16` in `europe-west1-d`:
+- Google returned a 14-day interval from `2026-09-03` to `2026-09-17` with rate `0.0`.
+- The crawler extracted ONLY `2026-09-03` and discarded the subsequent 13 calendar days (`2026-09-04` through `2026-09-16`).
+- As a result, BigQuery received only 9 total data points spanning August 18 to September 3, with 0 points for September 4–16.
+
+### C. Mathematical Cascade in Analytical Window Views (`v_regime_shifts`)
+BigQuery's regime shift model uses a 7-day recent window (`day_rank_desc <= 7`) and a 23-day baseline (`day_rank_desc BETWEEN 8 AND 30`):
+$$\text{day\_rank\_desc} = \text{ROW\_NUMBER}() \text{ OVER} (\text{PARTITION BY pool ORDER BY telemetry\_date DESC})$$
+
+Because 13 days of zero-rate data were missing between September 3 and September 17:
+1. `day_rank_desc = 1` was September 3 (rate: 0.0).
+2. `day_rank_desc = 2..7` reached all the way back to **August 25th**, picking up historical spikes:
+   - Aug 28: 100% (1.0)
+   - Sep 02: 50% (0.50)
+   - Aug 26: 2.9% (0.029)
+3. This computed a false recent average:
+   $$\mu_{\text{recent}} = \frac{0.0 + 0.50 + 0.0 + 1.0 + 0.029 + 0.0 + 0.0}{7} = 21.9\%$$
+4. Meanwhile, the baseline window ($8 \le \text{rank} \le 30$) was starved down to just 2 points (Aug 24: 0.0, Aug 18: 3.1%), yielding $\mu_{\text{baseline}} = 1.5\%$.
+5. The resulting metric was $\Delta = +20.4\%$ and $Z = +9.60\sigma$, triggering a false `CRITICAL` anomaly banner on completely stable infrastructure.
+
+---
+
+## 3. Architecture & Fix Implementation
+
+### Pillar 1: Calendar Day Interval Expansion in Crawler
+Introduced `_extract_preemption_rates_from_entry(entry)` in `mindthespot/crawler/client.py`:
+- Parses `interval.startTime` and `interval.endTime` into `datetime.date`.
+- Generates a contiguous sequence of `DailyPreemptionRate` instances for every calendar date in $[startTime, endTime)$.
+- For the `2026-09-03` to `2026-09-17` interval, this generates 14 individual zero-rate daily points (`2026-09-03`, `2026-09-04`, ..., `2026-09-16`).
+- Deduplicates points and chronologically sorts rates before return.
+
+### Pillar 2: Ingestion-Level Idempotency (`purge_snapshot`)
+Added `purge_snapshot(snapshot_date: str, region: str | None = None)` in `BigQueryStorageClient` and invoked it in `cli.py` before crawl execution:
+- Executes parameterized `DELETE FROM preemption_history WHERE snapshot_date = @snapshot_date [AND region = @region]`.
+- Guarantees that crawler testing, manual retries, or multiple job executions within the same calendar day never produce duplicate records or inflate table partitions.
+
+### Pillar 3: Analytical Deduplication in SQL Views & API Service
+Updated `sql/views/templates/v_regime_shifts.sql.tpl`, `sql/views/01_v_regime_shifts.sql`, and `mindthespot/api/service.py`:
+- Added a `deduped_preemption` CTE using:
+  ```sql
+  ROW_NUMBER() OVER (
+    PARTITION BY region, zone, machine_type, telemetry_date
+    ORDER BY crawled_at DESC
+  ) AS dedup_rank
+  WHERE dedup_rank = 1
+  ```
+- Added a corresponding `deduped_prices` CTE partitioned by `(region, machine_type, interval_start)` ordered by `crawled_at DESC`.
+- Guarantees that even with legacy duplicate rows from prior ad-hoc runs, analytical queries and API cache pre-warming always process exactly one deduplicated record per pool per calendar day.
+
+---
+
+## 4. Verification & Validation
+
+1. **Unit Tests**:
+   - `test_extract_preemption_rates_multi_day_interval`: Verified that a 14-day interval expands into 14 distinct dates with exact rate preservation.
+   - `test_fetch_preemption_history_expands_compressed_intervals`: Verified that chained multi-day intervals produce a seamless contiguous daily rate sequence.
+   - `test_bigquery_storage_client_purge_snapshot`: Verified that BigQuery snapshot purges execute parameterized deletions across both raw tables.
+2. **Full Test Suite**: 48/48 tests passing across the entire repository.
+3. **Linting & Formatting**: 100% compliant with `ruff check .` and `ruff format .`.
+
 

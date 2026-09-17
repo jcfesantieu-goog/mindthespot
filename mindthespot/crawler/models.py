@@ -38,7 +38,9 @@ class PriceIntervalRecord(BaseModel):
     """Historical spot pricing interval."""
 
     start_time: str = Field(..., description="ISO 8601 start timestamp")
-    end_time: str | None = Field(default=None, description="ISO 8601 end timestamp or None if active")
+    end_time: str | None = Field(
+        default=None, description="ISO 8601 end timestamp or None if active"
+    )
     hourly_price: float = Field(..., ge=0.0, description="Price in currency units per hour")
     currency: str = Field(default="USD")
 

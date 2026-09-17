@@ -13,7 +13,9 @@ from mindthespot.config.models import (
 
 logger = logging.getLogger(__name__)
 
-DEFAULT_CATALOG_PATH = Path(__file__).resolve().parent.parent.parent / "config" / "default_catalog.yaml"
+DEFAULT_CATALOG_PATH = (
+    Path(__file__).resolve().parent.parent.parent / "config" / "default_catalog.yaml"
+)
 
 
 def extract_family_from_machine_type(machine_type: str) -> str:
@@ -45,7 +47,9 @@ def load_watchlist(path: str | Path | None = None) -> WatchlistConfig:
 
     watchlist_path = Path(path)
     if not watchlist_path.exists():
-        logger.warning("Watchlist file '%s' does not exist; proceeding with empty watchlist.", watchlist_path)
+        logger.warning(
+            "Watchlist file '%s' does not exist; proceeding with empty watchlist.", watchlist_path
+        )
         return WatchlistConfig(watchlist=[])
 
     with open(watchlist_path, encoding="utf-8") as f:
@@ -94,7 +98,11 @@ def resolve_targets(
             if not zones:
                 zones = known_region_zones.get(region, [])
                 if not zones:
-                    logger.warning("No zones known for watchlist region '%s'; skipping entry %s", region, entry.name)
+                    logger.warning(
+                        "No zones known for watchlist region '%s'; skipping entry %s",
+                        region,
+                        entry.name,
+                    )
                     continue
 
             for zone in zones:

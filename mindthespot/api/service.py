@@ -69,7 +69,6 @@ class SpotDataService:
     def _synthetic_pool_cache(self, value: dict[str, dict[str, Any]]) -> None:
         self._pool_cache = value
 
-
     def _initialize_synthetic_dataset(self) -> None:
         """Seed realistic 30-day preemption and price histories for catalog pools."""
         targets = resolve_targets(self.catalog, self.watchlist)
@@ -208,12 +207,7 @@ class SpotDataService:
         and mindthespot_raw.preemption_history into memory. Falls back to synthetic dataset
         if BigQuery is unavailable or unauthenticated.
         """
-        pid = (
-            project_id
-            or os.getenv("GCP_PROJECT")
-            or os.getenv("PROJECT_ID")
-            or "jcf-mindthespot"
-        )
+        pid = project_id or os.getenv("GCP_PROJECT") or os.getenv("PROJECT_ID") or "jcf-mindthespot"
         self._is_warming = True
         logger.info("Pre-warming MindTheSpot cache from BigQuery in project: %s", pid)
 
@@ -233,15 +227,42 @@ class SpotDataService:
             """
 
             q_prices = f"""
+            WITH latest_snapshot AS (
+                SELECT MAX(snapshot_date) AS max_snapshot_date
+                FROM `{pid}.mindthespot_raw.price_history`
+            ),
+            deduped AS (
+                SELECT region, machine_type, interval_start, interval_end, hourly_price, currency,
+                       ROW_NUMBER() OVER (
+                           PARTITION BY region, machine_type, interval_start
+                           ORDER BY crawled_at DESC
+                       ) AS rn
+                FROM `{pid}.mindthespot_raw.price_history`
+                WHERE snapshot_date = (SELECT max_snapshot_date FROM latest_snapshot)
+            )
             SELECT region, machine_type, interval_start, interval_end, hourly_price, currency
-            FROM `{pid}.mindthespot_raw.price_history`
+            FROM deduped
+            WHERE rn = 1
             ORDER BY region, machine_type, interval_start ASC
             """
 
             q_preempt = f"""
+            WITH latest_snapshot AS (
+                SELECT MAX(snapshot_date) AS max_snapshot_date
+                FROM `{pid}.mindthespot_raw.preemption_history`
+            ),
+            deduped AS (
+                SELECT region, zone, machine_type, telemetry_date, preemption_rate,
+                       ROW_NUMBER() OVER (
+                           PARTITION BY region, zone, machine_type, telemetry_date
+                           ORDER BY crawled_at DESC
+                       ) AS rn
+                FROM `{pid}.mindthespot_raw.preemption_history`
+                WHERE snapshot_date = (SELECT max_snapshot_date FROM latest_snapshot)
+            )
             SELECT region, zone, machine_type, telemetry_date, preemption_rate
-            FROM `{pid}.mindthespot_raw.preemption_history`
-            WHERE snapshot_date = (SELECT MAX(snapshot_date) FROM `{pid}.mindthespot_raw.preemption_history`)
+            FROM deduped
+            WHERE rn = 1
             ORDER BY region, zone, machine_type, telemetry_date ASC
             """
 
@@ -325,8 +346,12 @@ class SpotDataService:
                     prev_p = intervals[-2].hourly_price
                     price_change_pct = round(((current_price - prev_p) / prev_p) * 100.0, 2)
 
-                price_hike_detected = bool(getattr(s, "price_hike_detected", False)) or (price_change_pct >= 5.0)
-                price_drop_detected = bool(getattr(s, "price_drop_detected", False)) or (price_change_pct <= -5.0)
+                price_hike_detected = bool(getattr(s, "price_hike_detected", False)) or (
+                    price_change_pct >= 5.0
+                )
+                price_drop_detected = bool(getattr(s, "price_drop_detected", False)) or (
+                    price_change_pct <= -5.0
+                )
 
                 new_cache[key] = {
                     "target": target,
@@ -387,7 +412,6 @@ class SpotDataService:
             "total_preemption_points": self._total_preemption_points,
             "is_warming": self._is_warming,
         }
-
 
     def get_all_pools(
         self,
@@ -650,6 +674,7 @@ class SpotDataService:
 
         # Invalidate cache
         from mindthespot.api.cache import clear_cache
+
         clear_cache()
 
         added_keys = []
@@ -686,4 +711,3 @@ class SpotDataService:
     ) -> bool:
         """Remove a pool from watchlist and delete custom watchlist entries."""
         return self.toggle_watchlist_pool(region, zone, machine_type, is_watchlist=False)
-

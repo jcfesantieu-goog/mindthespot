@@ -86,7 +86,11 @@ def classify_preemption_severity(
     STABLE:
         All other conditions
     """
-    if (z_score >= 2.5 and recent_7d_rate >= 0.20) or (rate_delta >= 0.25) or (recent_7d_rate >= 0.50):
+    if (
+        (z_score >= 2.5 and recent_7d_rate >= 0.20)
+        or (rate_delta >= 0.25)
+        or (recent_7d_rate >= 0.50)
+    ):
         return "CRITICAL"
     elif (z_score >= 1.8 and recent_7d_rate >= 0.15) or (rate_delta >= 0.15):
         return "ELEVATED"

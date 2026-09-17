@@ -4,6 +4,7 @@ import asyncio
 import logging
 import random
 import time
+from datetime import datetime, timedelta
 from typing import Any
 
 import httpx
@@ -17,6 +18,50 @@ from mindthespot.crawler.rate_limiter import AsyncTokenBucketRateLimiter
 logger = logging.getLogger(__name__)
 
 COMPUTE_BETA_BASE_URL = "https://compute.googleapis.com/compute/beta/projects"
+
+
+def _extract_preemption_rates_from_entry(entry: dict[str, Any]) -> list[DailyPreemptionRate]:
+    """Parse a preemption history entry, expanding multi-day intervals into daily records.
+
+    Google Cloud Compute Engine Capacity History API compresses consecutive days
+    with identical preemption rates into a single [startTime, endTime) interval.
+    This helper unrolls that interval into individual DailyPreemptionRate objects
+    for each calendar date.
+    """
+    rate_val = float(entry.get("preemptionRate", 0.0))
+    if entry.get("date"):
+        return [DailyPreemptionRate(date=str(entry["date"])[:10], preemption_rate=rate_val)]
+
+    interval = entry.get("interval")
+    if not isinstance(interval, dict) or not interval.get("startTime"):
+        return []
+
+    start_str = str(interval["startTime"])[:10]
+    end_str = str(interval.get("endTime", ""))[:10]
+
+    try:
+        start_date = datetime.strptime(start_str, "%Y-%m-%d").date()
+    except ValueError:
+        return [DailyPreemptionRate(date=start_str, preemption_rate=rate_val)]
+
+    if end_str:
+        try:
+            end_date = datetime.strptime(end_str, "%Y-%m-%d").date()
+        except ValueError:
+            end_date = start_date + timedelta(days=1)
+    else:
+        end_date = start_date + timedelta(days=1)
+
+    expanded: list[DailyPreemptionRate] = []
+    curr = start_date
+    while curr < end_date:
+        expanded.append(DailyPreemptionRate(date=curr.isoformat(), preemption_rate=rate_val))
+        curr += timedelta(days=1)
+
+    if not expanded:
+        expanded.append(DailyPreemptionRate(date=start_str, preemption_rate=rate_val))
+
+    return expanded
 
 
 class GCPCapacityHistoryClient:
@@ -117,8 +162,13 @@ class GCPCapacityHistoryClient:
                 except httpx.RequestError as exc:
                     if attempt == self.max_retries:
                         raise
-                    logger.warning("Network error contacting GCP API: %s (attempt %d/%d)", exc, attempt + 1, self.max_retries)
-                    backoff = (self.base_backoff_sec * (2 ** attempt)) + random.uniform(0.1, 0.5)
+                    logger.warning(
+                        "Network error contacting GCP API: %s (attempt %d/%d)",
+                        exc,
+                        attempt + 1,
+                        self.max_retries,
+                    )
+                    backoff = (self.base_backoff_sec * (2**attempt)) + random.uniform(0.1, 0.5)
                     await asyncio.sleep(backoff)
                     continue
 
@@ -126,7 +176,7 @@ class GCPCapacityHistoryClient:
             if response.status_code in (429, 503):
                 if attempt == self.max_retries:
                     response.raise_for_status()
-                backoff = (self.base_backoff_sec * (2 ** attempt)) + random.uniform(0.1, 0.5)
+                backoff = (self.base_backoff_sec * (2**attempt)) + random.uniform(0.1, 0.5)
                 logger.warning(
                     "GCP API returned %d; retrying in %.2fs (attempt %d/%d)",
                     response.status_code,
@@ -169,19 +219,7 @@ class GCPCapacityHistoryClient:
         raw_preempt_list = data.get("preemptionHistory", [])
         if isinstance(raw_preempt_list, list):
             for entry in raw_preempt_list:
-                dt = entry.get("date") or (
-                    entry.get("interval", {}).get("startTime", "")[:10]
-                    if entry.get("interval")
-                    else None
-                )
-                rate_val = entry.get("preemptionRate", 0.0)
-                if dt:
-                    rates.append(
-                        DailyPreemptionRate(
-                            date=dt,
-                            preemption_rate=float(rate_val),
-                        )
-                    )
+                rates.extend(_extract_preemption_rates_from_entry(entry))
 
         # Parse nested capacityHistory wrapper format
         for item in data.get("capacityHistory", []):
@@ -195,19 +233,7 @@ class GCPCapacityHistoryClient:
                     else []
                 )
                 for entry in entries:
-                    dt = entry.get("date") or (
-                        entry.get("interval", {}).get("startTime", "")[:10]
-                        if entry.get("interval")
-                        else None
-                    )
-                    rate_val = entry.get("preemptionRate", 0.0)
-                    if dt:
-                        rates.append(
-                            DailyPreemptionRate(
-                                date=dt,
-                                preemption_rate=float(rate_val),
-                            )
-                        )
+                    rates.extend(_extract_preemption_rates_from_entry(entry))
 
         # Deduplicate and sort chronologically by date
         unique_rates = {r.date: r for r in rates}

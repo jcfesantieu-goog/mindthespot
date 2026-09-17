@@ -115,4 +115,3 @@ class CacheRefreshResponse(BaseModel):
     status: str
     message: str
     triggered_at: str
-

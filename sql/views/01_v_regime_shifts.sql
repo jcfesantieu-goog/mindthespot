@@ -7,7 +7,7 @@ WITH latest_snapshot AS (
   FROM `{project}.{dataset}.preemption_history`
 ),
 
-ranked_preemption AS (
+deduped_preemption AS (
   SELECT
     p.snapshot_date,
     p.region,
@@ -19,11 +19,30 @@ ranked_preemption AS (
     p.is_watchlist,
     p.custom_label,
     ROW_NUMBER() OVER (
-      PARTITION BY p.region, p.zone, p.machine_type
-      ORDER BY p.telemetry_date DESC
-    ) AS day_rank_desc
+      PARTITION BY p.region, p.zone, p.machine_type, p.telemetry_date
+      ORDER BY p.crawled_at DESC
+    ) AS dedup_rank
   FROM `{project}.{dataset}.preemption_history` p
   INNER JOIN latest_snapshot s ON p.snapshot_date = s.max_snapshot_date
+),
+
+ranked_preemption AS (
+  SELECT
+    snapshot_date,
+    region,
+    zone,
+    machine_type,
+    family,
+    telemetry_date,
+    preemption_rate,
+    is_watchlist,
+    custom_label,
+    ROW_NUMBER() OVER (
+      PARTITION BY region, zone, machine_type
+      ORDER BY telemetry_date DESC
+    ) AS day_rank_desc
+  FROM deduped_preemption
+  WHERE dedup_rank = 1
 ),
 
 pool_windows AS (
@@ -65,18 +84,33 @@ z_scored AS (
   FROM pool_windows
 ),
 
-ranked_prices AS (
+deduped_prices AS (
   SELECT
     pr.region,
     pr.machine_type,
     pr.hourly_price,
     pr.currency,
+    pr.interval_start,
     ROW_NUMBER() OVER (
-      PARTITION BY pr.region, pr.machine_type
-      ORDER BY pr.interval_start DESC
-    ) AS price_rank_desc
+      PARTITION BY pr.region, pr.machine_type, pr.interval_start
+      ORDER BY pr.crawled_at DESC
+    ) AS dedup_rank
   FROM `{project}.{dataset}.price_history` pr
   INNER JOIN latest_snapshot s ON pr.snapshot_date = s.max_snapshot_date
+),
+
+ranked_prices AS (
+  SELECT
+    region,
+    machine_type,
+    hourly_price,
+    currency,
+    ROW_NUMBER() OVER (
+      PARTITION BY region, machine_type
+      ORDER BY interval_start DESC
+    ) AS price_rank_desc
+  FROM deduped_prices
+  WHERE dedup_rank = 1
 ),
 
 latest_prices AS (

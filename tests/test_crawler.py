@@ -10,7 +10,10 @@ from mindthespot.config.models import (
     MachineFamilyConfig,
     RegionConfig,
 )
-from mindthespot.crawler.client import GCPCapacityHistoryClient
+from mindthespot.crawler.client import (
+    GCPCapacityHistoryClient,
+    _extract_preemption_rates_from_entry,
+)
 from mindthespot.crawler.extractor import CrawlEngine
 from mindthespot.crawler.rate_limiter import AsyncTokenBucketRateLimiter
 
@@ -136,7 +139,9 @@ async def test_crawl_engine_run(mock_preemption_api_response, mock_price_api_res
         )
 
         catalog = CatalogConfig(
-            regions=[RegionConfig(region="europe-west4", zones=["europe-west4-a", "europe-west4-b"])],
+            regions=[
+                RegionConfig(region="europe-west4", zones=["europe-west4-a", "europe-west4-b"])
+            ],
             families=[
                 MachineFamilyConfig(
                     family="c4d",
@@ -189,7 +194,9 @@ async def test_client_shared_session_and_token_cache(mock_preemption_api_respons
 
 
 @pytest.mark.asyncio
-async def test_crawl_engine_streaming_callback(mock_preemption_api_response, mock_price_api_response):
+async def test_crawl_engine_streaming_callback(
+    mock_preemption_api_response, mock_price_api_response
+):
     async def mock_handler(request: httpx.Request) -> httpx.Response:
         content = request.read().decode("utf-8")
         if "PREEMPTION" in content:
@@ -205,7 +212,9 @@ async def test_crawl_engine_streaming_callback(mock_preemption_api_response, moc
         )
 
         catalog = CatalogConfig(
-            regions=[RegionConfig(region="europe-west4", zones=["europe-west4-a", "europe-west4-b"])],
+            regions=[
+                RegionConfig(region="europe-west4", zones=["europe-west4-a", "europe-west4-b"])
+            ],
             families=[
                 MachineFamilyConfig(
                     family="c4d",
@@ -239,3 +248,92 @@ async def test_crawl_engine_streaming_callback(mock_preemption_api_response, moc
         assert summary.total_preemption_pools == 2
         assert summary.total_price_pools == 1
 
+
+def test_extract_preemption_rates_multi_day_interval():
+    # 14-day interval like c4a-standard-16 from 09-03 to 09-17
+    entry = {
+        "interval": {
+            "startTime": "2026-09-03T07:00:00Z",
+            "endTime": "2026-09-17T07:00:00Z",
+        },
+        "preemptionRate": 0.0,
+    }
+    rates = _extract_preemption_rates_from_entry(entry)
+    assert len(rates) == 14
+    assert rates[0].date == "2026-09-03"
+    assert rates[0].preemption_rate == 0.0
+    assert rates[-1].date == "2026-09-16"
+    assert rates[-1].preemption_rate == 0.0
+
+    # Single-day date entry
+    date_entry = {"date": "2026-09-01", "preemptionRate": 0.15}
+    single_rates = _extract_preemption_rates_from_entry(date_entry)
+    assert len(single_rates) == 1
+    assert single_rates[0].date == "2026-09-01"
+    assert single_rates[0].preemption_rate == 0.15
+
+    # Missing endTime defaults to 1 day
+    no_end_entry = {
+        "interval": {"startTime": "2026-09-02T07:00:00Z"},
+        "preemptionRate": 0.5,
+    }
+    no_end_rates = _extract_preemption_rates_from_entry(no_end_entry)
+    assert len(no_end_rates) == 1
+    assert no_end_rates[0].date == "2026-09-02"
+    assert no_end_rates[0].preemption_rate == 0.5
+
+
+@pytest.mark.asyncio
+async def test_fetch_preemption_history_expands_compressed_intervals():
+    compressed_api_response = {
+        "preemptionHistory": [
+            {
+                "interval": {
+                    "startTime": "2026-09-01T07:00:00Z",
+                    "endTime": "2026-09-05T07:00:00Z",
+                },
+                "preemptionRate": 0.02,
+            },
+            {
+                "interval": {
+                    "startTime": "2026-09-05T07:00:00Z",
+                    "endTime": "2026-09-08T07:00:00Z",
+                },
+                "preemptionRate": 0.10,
+            },
+        ]
+    }
+
+    async def mock_handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(200, json=compressed_api_response)
+
+    transport = httpx.MockTransport(mock_handler)
+    async with httpx.AsyncClient(transport=transport) as http_client:
+        client = GCPCapacityHistoryClient(token_provider="fake-token", http_client=http_client)
+        rates = await client.fetch_preemption_history(
+            project="test-proj",
+            region="europe-west1",
+            zone="europe-west1-d",
+            machine_type="c4a-standard-16",
+        )
+
+        # 4 days (01, 02, 03, 04) + 3 days (05, 06, 07) = 7 consecutive daily points
+        assert len(rates) == 7
+        assert [r.date for r in rates] == [
+            "2026-09-01",
+            "2026-09-02",
+            "2026-09-03",
+            "2026-09-04",
+            "2026-09-05",
+            "2026-09-06",
+            "2026-09-07",
+        ]
+        assert [r.preemption_rate for r in rates] == [
+            0.02,
+            0.02,
+            0.02,
+            0.02,
+            0.10,
+            0.10,
+            0.10,
+        ]

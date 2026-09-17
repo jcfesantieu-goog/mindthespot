@@ -100,21 +100,24 @@ flowchart TD
 
 #### 1. Ingestion Subsystem (Crawler & Scheduler)
 * **Execution Model:** Runs serverless as a **Cloud Run Job**, invoked on a weekly schedule by **Cloud Scheduler** (e.g., every Monday at 01:00 UTC, safely after Google Cloud's midnight Pacific Time telemetry rollover).
-* **Asymmetric Query Mechanics:**
-  * **Preemption Telemetry:** Zonal granularity (`locationPolicy.location: "zones/{zone}"`). GCP returns 30 rolling daily values (`0.00` to `1.00`).
+* **Asymmetric Query Mechanics & Interval Expansion:**
+  * **Preemption Telemetry:** Zonal granularity (`locationPolicy.location: "zones/{zone}"`). GCP returns up to 30 rolling days of telemetry (`0.00` to `1.00`). When preemption rates remain constant over consecutive days, GCP compresses them into single multi-day `[startTime, endTime)` intervals. The crawler unrolls each interval into discrete `DailyPreemptionRate` records across all individual calendar days in $[startTime, endTime)$, ensuring contiguous 30-day time-series without gaps that would otherwise skew rolling statistical windows.
   * **Price Telemetry:** Regional granularity (`regions/{region}`). GCP returns 1-year historical hourly prices per active interval.
 * **Rate Limiting & Resiliency:**
   * A client-side Token Bucket Rate Limiter restricts outgoing requests to $\le 15\text{ req/s}$ (well within Compute Engine Advice API quotas).
   * Jittered exponential backoff handles any transient `429 Too Many Requests` or `503 Service Unavailable` errors.
   * Concurrency is managed via `asyncio.Semaphore` with connection reuse via HTTP/2 connection pooling (`httpx.AsyncClient`).
+* **Multi-Layer Idempotency Contract:**
+  * **Storage-Level Ingestion Purge:** At crawl start, the crawler invokes `BigQueryStorageClient.purge_snapshot(snapshot_date, region)` to clear any existing rows for today's partition before streaming begins. Re-running the crawler or retrying failed regions on the same calendar day is completely idempotent and never duplicates records.
+  * **Analytical-Level Deduplication:** Views (`v_regime_shifts`) and API service queries apply window deduplication (`ROW_NUMBER() OVER (PARTITION BY pool, telemetry_date ORDER BY crawled_at DESC) = 1`), guaranteeing that only the latest crawl point per day is evaluated, even if legacy runs left duplicate entries.
 
 #### 2. Storage & Analytical Transformation Subsystem (BigQuery)
 * **Raw Lakehouse Layer (`mindthespot_raw`):**
   * Tables are partitioned daily by `snapshot_date` (`DATE`) and clustered by `region`, `zone`, and `machine_type`.
-  * Ingestion is append-only per weekly run. Weekly runs are idempotent: inserting a new snapshot partition does not touch or invalidate historical partitions.
+  * Ingestion is append-only per regional stream, preceded by a same-day partition purge to maintain strict idempotency.
 * **Analytical Transformation Layer (`mindthespot_analytics`):**
   * BigQuery SQL Views continuously compute rolling statistical metrics on demand without expensive manual batch pipelines:
-    * `v_regime_shifts`: Computes baseline mean $\mu_{\text{base}}$ ($d_1 \dots d_{23}$), recent mean $\mu_{7d}$ ($d_{24} \dots d_{30}$), variance $\sigma_{\text{base}}$, and Z-score $Z = \frac{\mu_{7d} - \mu_{\text{base}}}{\max(\sigma_{\text{base}}, 0.02)}$. Also detects discrete price interval shifts ($\Delta_{\text{price}} \ge 10\%$).
+    * `v_regime_shifts`: Deduplicates raw records by latest `crawled_at`, then computes baseline mean $\mu_{\text{base}}$ ($d_8 \dots d_{30}$), recent mean $\mu_{7d}$ ($d_1 \dots d_7$), variance $\sigma_{\text{base}}$, and Z-score $Z = \frac{\mu_{7d} - \mu_{\text{base}}}{\max(\sigma_{\text{base}}, 0.02)}$. Also detects discrete price interval shifts ($\Delta_{\text{price}} \ge 5\%$).
     * `v_pivot_recommendations`: Cross-joins anomaly pools with candidate stable pools in the same region, evaluating latency proximity (sibling zones) and hardware equivalence (same vCPU/RAM envelope across C4D, C3D, C4A, N2D).
 
 #### 3. Identity-Aware Proxy & Edge Ingress Subsystem (Cloud IAP)
@@ -466,6 +469,7 @@ from mindthespot.api.service import AnalyticsService, get_analytics_service
 
 router = APIRouter(prefix="/api/v1", tags=["anomalies"])
 
+
 class AnomalyItem(BaseModel):
     region: str
     zone: str
@@ -477,6 +481,7 @@ class AnomalyItem(BaseModel):
     baseline_30d_rate: float
     price_hourly: float
     is_watchlist: bool
+
 
 @router.get("/anomalies", response_model=list[AnomalyItem])
 async def list_anomalies(

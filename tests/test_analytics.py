@@ -39,18 +39,35 @@ def test_noise_floor_prevents_false_positives_on_micro_fluctuations():
 
 def test_classify_preemption_severity_thresholds():
     # Critical by high Z and rate >= 0.20
-    assert classify_preemption_severity(z_score=2.8, recent_7d_rate=0.22, rate_delta=0.18) == "CRITICAL"
+    assert (
+        classify_preemption_severity(z_score=2.8, recent_7d_rate=0.22, rate_delta=0.18)
+        == "CRITICAL"
+    )
     # Critical by huge delta >= 0.25
-    assert classify_preemption_severity(z_score=1.5, recent_7d_rate=0.26, rate_delta=0.26) == "CRITICAL"
+    assert (
+        classify_preemption_severity(z_score=1.5, recent_7d_rate=0.26, rate_delta=0.26)
+        == "CRITICAL"
+    )
     # Critical by absolute rate >= 0.50
-    assert classify_preemption_severity(z_score=1.0, recent_7d_rate=0.52, rate_delta=0.05) == "CRITICAL"
+    assert (
+        classify_preemption_severity(z_score=1.0, recent_7d_rate=0.52, rate_delta=0.05)
+        == "CRITICAL"
+    )
 
     # Elevated
-    assert classify_preemption_severity(z_score=1.9, recent_7d_rate=0.16, rate_delta=0.10) == "ELEVATED"
-    assert classify_preemption_severity(z_score=1.2, recent_7d_rate=0.18, rate_delta=0.16) == "ELEVATED"
+    assert (
+        classify_preemption_severity(z_score=1.9, recent_7d_rate=0.16, rate_delta=0.10)
+        == "ELEVATED"
+    )
+    assert (
+        classify_preemption_severity(z_score=1.2, recent_7d_rate=0.18, rate_delta=0.16)
+        == "ELEVATED"
+    )
 
     # Stable
-    assert classify_preemption_severity(z_score=0.5, recent_7d_rate=0.05, rate_delta=0.01) == "STABLE"
+    assert (
+        classify_preemption_severity(z_score=0.5, recent_7d_rate=0.05, rate_delta=0.01) == "STABLE"
+    )
 
 
 def test_detect_price_step_change():
@@ -79,7 +96,6 @@ def test_equivalent_families_matrix():
     assert "c3" in EQUIVALENT_FAMILIES_MAP["n4"]
     assert "t2a" in EQUIVALENT_FAMILIES_MAP["t2d"]
     assert "t2d" in EQUIVALENT_FAMILIES_MAP["t2a"]
-
 
 
 def test_find_pivot_candidates_for_congested_pool():

@@ -225,5 +225,3 @@ def refresh_cache(
         message="Background cache synchronization from BigQuery initiated.",
         triggered_at=datetime.now(UTC).isoformat(),
     )
-
-

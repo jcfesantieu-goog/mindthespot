@@ -111,3 +111,29 @@ def test_bigquery_storage_client_insert_rows():
     assert count == 1
     mock_client.load_table_from_json.assert_called_once()
     mock_job.result.assert_called_once()
+
+
+def test_bigquery_storage_client_purge_snapshot():
+    mock_client = MagicMock()
+    mock_query_job = MagicMock()
+    mock_client.query.return_value = mock_query_job
+
+    storage = BigQueryStorageClient(
+        project="test-proj",
+        dataset="test_raw",
+        client=mock_client,
+    )
+
+    storage.purge_snapshot("2026-09-17", region="europe-west1")
+
+    # Should execute DELETE for both preemption_history and price_history
+    assert mock_client.query.call_count == 2
+    assert mock_query_job.result.call_count == 2
+
+    # Verify query contains DELETE and parameters
+    first_call_args = mock_client.query.call_args_list[0][0][0]
+    assert "DELETE FROM `test-proj.test_raw.preemption_history`" in first_call_args
+    assert "WHERE snapshot_date = @snapshot_date AND region = @region" in first_call_args
+
+    second_call_args = mock_client.query.call_args_list[1][0][0]
+    assert "DELETE FROM `test-proj.test_raw.price_history`" in second_call_args

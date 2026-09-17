@@ -1,6 +1,7 @@
 """Command-line interface for MindTheSpot."""
 
 import asyncio
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Annotated
 
@@ -43,7 +44,9 @@ def crawl(
     ] = "mindthespot-default",
     dataset: Annotated[
         str,
-        typer.Option("--dataset", envvar="BIGQUERY_DATASET_RAW", help="Target BigQuery raw dataset"),
+        typer.Option(
+            "--dataset", envvar="BIGQUERY_DATASET_RAW", help="Target BigQuery raw dataset"
+        ),
     ] = "mindthespot_raw",
     catalog_path: Annotated[
         Path | None,
@@ -63,7 +66,9 @@ def crawl(
     ] = None,
 ) -> None:
     """Crawl GCP Spot preemption rates and interval pricing."""
-    console.print(f"[bold cyan]🚀 Starting MindTheSpot Crawler (Project: {project}, Dataset: {dataset})...[/bold cyan]")
+    console.print(
+        f"[bold cyan]🚀 Starting MindTheSpot Crawler (Project: {project}, Dataset: {dataset})...[/bold cyan]"
+    )
 
     catalog = load_catalog(catalog_path)
     watchlist = load_watchlist(watchlist_path)
@@ -81,6 +86,10 @@ def crawl(
 
                 storage = BigQueryStorageClient(project=project, dataset=dataset)
                 storage.ensure_dataset_and_tables()
+
+                # Ensure idempotency: purge any prior crawl data for today (scoped to region if specified)
+                today_str = datetime.now(UTC).strftime("%Y-%m-%d")
+                storage.purge_snapshot(snapshot_date=today_str, region=region)
 
             total_p_streamed = 0
             total_pr_streamed = 0
@@ -148,12 +157,16 @@ def crawl(
 def serve(
     host: Annotated[str, typer.Option("--host", help="Bind host address")] = "0.0.0.0",
     port: Annotated[int, typer.Option("--port", help="Port to listen on")] = 8000,
-    reload: Annotated[bool, typer.Option("--reload", help="Enable auto-reload on code change")] = False,
+    reload: Annotated[
+        bool, typer.Option("--reload", help="Enable auto-reload on code change")
+    ] = False,
 ) -> None:
     """Launch MindTheSpot FastAPI backend server."""
     import uvicorn
 
-    console.print(f"[bold green]⚡ Launching MindTheSpot API at http://{host}:{port}...[/bold green]")
+    console.print(
+        f"[bold green]⚡ Launching MindTheSpot API at http://{host}:{port}...[/bold green]"
+    )
     uvicorn.run("mindthespot.api.app:app", host=host, port=port, reload=reload)
 
 
@@ -218,7 +231,9 @@ def list_pivots_cli(
     res = service.get_pivot_recommendations(region, zone, machine_type)
 
     if not res or not res.pivots:
-        console.print(f"[yellow]No fallback pivots found for {region}/{zone}/{machine_type}[/yellow]")
+        console.print(
+            f"[yellow]No fallback pivots found for {region}/{zone}/{machine_type}[/yellow]"
+        )
         return
 
     table = Table(
@@ -254,4 +269,3 @@ def list_pivots_cli(
 
 if __name__ == "__main__":
     app()
-

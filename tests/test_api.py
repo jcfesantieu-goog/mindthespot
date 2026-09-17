@@ -195,5 +195,3 @@ def test_auth_me_with_iap_headers(client):
     assert data["email"] == "sre@jcfesantieu.altostrat.com"
     assert data["user_id"] == "123456789"
     assert data["is_authenticated"] is True
-
-

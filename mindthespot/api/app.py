@@ -43,7 +43,6 @@ def create_app() -> FastAPI:
         lifespan=lifespan,
     )
 
-
     # CORS configuration for frontend dev server
     app.add_middleware(
         CORSMiddleware,

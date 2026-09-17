@@ -114,3 +114,31 @@ class BigQueryStorageClient:
             rows,
             PRICE_TABLE_SCHEMA,
         )
+
+    def purge_snapshot(self, snapshot_date: str, region: str | None = None) -> None:
+        """Purge existing records for the given snapshot_date to ensure idempotent re-runs."""
+        where_clause = "WHERE snapshot_date = @snapshot_date"
+        params = [bigquery.ScalarQueryParameter("snapshot_date", "DATE", snapshot_date)]
+
+        if region:
+            where_clause += " AND region = @region"
+            params.append(bigquery.ScalarQueryParameter("region", "STRING", region))
+
+        for table_name in ("preemption_history", "price_history"):
+            query = f"DELETE FROM `{self.project}.{self.dataset}.{table_name}` {where_clause}"
+            try:
+                job_config = bigquery.QueryJobConfig(query_parameters=params)
+                self.client.query(query, job_config=job_config).result()
+                logger.info(
+                    "Purged existing records from %s for snapshot %s (region=%s)",
+                    table_name,
+                    snapshot_date,
+                    region or "ALL",
+                )
+            except Exception as e:
+                logger.warning(
+                    "Could not purge snapshot %s from %s: %s",
+                    snapshot_date,
+                    table_name,
+                    e,
+                )
