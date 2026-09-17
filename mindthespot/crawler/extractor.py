@@ -3,6 +3,7 @@
 import asyncio
 import logging
 from datetime import UTC, datetime
+from typing import Any
 
 from mindthespot.config.loader import resolve_targets
 from mindthespot.config.models import CatalogConfig, InstancePoolTarget, WatchlistConfig
@@ -124,8 +125,9 @@ class CrawlEngine:
         self,
         region_filter: str | None = None,
         family_filter: str | None = None,
+        on_region_complete: Any = None,
     ) -> tuple[list[PreemptionSnapshotRecord], list[PriceSnapshotRecord], CrawlSummary]:
-        """Execute full crawl across configured targets with optional filtering."""
+        """Execute full crawl across configured targets with bounded regional streaming."""
         started_at = datetime.now(UTC)
         snapshot_date = started_at.strftime("%Y-%m-%d")
         crawled_at = started_at.isoformat()
@@ -140,30 +142,57 @@ class CrawlEngine:
             ff = family_filter.strip().lower()
             all_targets = [t for t in all_targets if t.family == ff]
 
-        # 1. Dispatch Preemption tasks (zonal)
-        preempt_tasks = [
-            self.crawl_preemption_target(target, snapshot_date, crawled_at)
-            for target in all_targets
-        ]
+        # Group targets by region for bounded, streaming execution
+        targets_by_region: dict[str, list[InstancePoolTarget]] = {}
+        for target in all_targets:
+            targets_by_region.setdefault(target.region, []).append(target)
 
-        # 2. Dispatch Price tasks (regional deduplication)
-        unique_price_keys: set[tuple[str, str, str]] = {
+        unique_price_keys_all: set[tuple[str, str, str]] = {
             (t.region, t.machine_type, t.family) for t in all_targets
         }
-        price_tasks = [
-            self.crawl_price_target(region, machine_type, family, snapshot_date, crawled_at)
-            for (region, machine_type, family) in unique_price_keys
-        ]
 
-        # Run concurrently
-        preempt_results, price_results = await asyncio.gather(
-            asyncio.gather(*preempt_tasks),
-            asyncio.gather(*price_tasks),
-        )
+        all_valid_preempt: list[PreemptionSnapshotRecord] = []
+        all_valid_price: list[PriceSnapshotRecord] = []
+        successful_preemption_queries = 0
+        successful_price_queries = 0
+        failed_queries = 0
 
-        valid_preempt = [r for r in preempt_results if r is not None]
-        valid_price = [r for r in price_results if r is not None]
-        failed_count = (len(preempt_tasks) - len(valid_preempt)) + (len(price_tasks) - len(valid_price))
+        # Process region by region to cap memory footprint
+        for region, r_targets in targets_by_region.items():
+            preempt_tasks = [
+                self.crawl_preemption_target(target, snapshot_date, crawled_at)
+                for target in r_targets
+            ]
+
+            r_price_keys: set[tuple[str, str, str]] = {
+                (t.region, t.machine_type, t.family) for t in r_targets
+            }
+            price_tasks = [
+                self.crawl_price_target(reg, m_type, fam, snapshot_date, crawled_at)
+                for (reg, m_type, fam) in r_price_keys
+            ]
+
+            p_results, pr_results = await asyncio.gather(
+                asyncio.gather(*preempt_tasks),
+                asyncio.gather(*price_tasks),
+            )
+
+            r_valid_preempt = [r for r in p_results if r is not None]
+            r_valid_price = [r for r in pr_results if r is not None]
+
+            successful_preemption_queries += len(r_valid_preempt)
+            successful_price_queries += len(r_valid_price)
+            failed_queries += (len(preempt_tasks) - len(r_valid_preempt)) + (
+                len(price_tasks) - len(r_valid_price)
+            )
+
+            if on_region_complete:
+                res = on_region_complete(region, r_valid_preempt, r_valid_price)
+                if asyncio.iscoroutine(res):
+                    await res
+            else:
+                all_valid_preempt.extend(r_valid_preempt)
+                all_valid_price.extend(r_valid_price)
 
         completed_at = datetime.now(UTC)
         duration = (completed_at - started_at).total_seconds()
@@ -174,10 +203,10 @@ class CrawlEngine:
             completed_at=completed_at,
             duration_seconds=round(duration, 2),
             total_preemption_pools=len(all_targets),
-            total_price_pools=len(unique_price_keys),
-            successful_preemption_queries=len(valid_preempt),
-            successful_price_queries=len(valid_price),
-            failed_queries=failed_count,
+            total_price_pools=len(unique_price_keys_all),
+            successful_preemption_queries=successful_preemption_queries,
+            successful_price_queries=successful_price_queries,
+            failed_queries=failed_queries,
         )
 
-        return valid_preempt, valid_price, summary
+        return all_valid_preempt, all_valid_price, summary

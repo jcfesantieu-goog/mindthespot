@@ -3,6 +3,7 @@
 import asyncio
 import logging
 import random
+import time
 from typing import Any
 
 import httpx
@@ -33,12 +34,36 @@ class GCPCapacityHistoryClient:
         self.rate_limiter = rate_limiter or AsyncTokenBucketRateLimiter(rate=15.0, capacity=15.0)
         self.token_provider = token_provider
         self.http_client = http_client
+        self._owns_http_client = http_client is None
+        self._cached_token: str | None = None
+        self._token_expiry: float = 0.0
+        self._auth_lock = asyncio.Lock()
         self.base_url = base_url.rstrip("/")
         self.max_retries = max_retries
         self.base_backoff_sec = base_backoff_sec
 
+    async def get_http_client(self) -> httpx.AsyncClient:
+        """Get or lazily initialize the shared HTTP/2 client with connection pooling."""
+        if self.http_client is None or self.http_client.is_closed:
+            limits = httpx.Limits(max_keepalive_connections=20, max_connections=30)
+            self.http_client = httpx.AsyncClient(http2=True, timeout=30.0, limits=limits)
+            self._owns_http_client = True
+        return self.http_client
+
+    async def aclose(self) -> None:
+        """Close the underlying HTTP client if owned by this instance."""
+        if self._owns_http_client and self.http_client and not self.http_client.is_closed:
+            await self.http_client.aclose()
+
+    async def __aenter__(self) -> "GCPCapacityHistoryClient":
+        await self.get_http_client()
+        return self
+
+    async def __aexit__(self, exc_type: Any, exc_val: Any, exc_tb: Any) -> None:
+        await self.aclose()
+
     async def _get_auth_headers(self) -> dict[str, str]:
-        """Obtain authorization headers via token provider or Google ADC."""
+        """Obtain authorization headers via token provider or cached Google ADC."""
         if callable(self.token_provider):
             token = self.token_provider()
             if asyncio.iscoroutine(token):
@@ -47,19 +72,33 @@ class GCPCapacityHistoryClient:
         elif isinstance(self.token_provider, str):
             return {"Authorization": f"Bearer {self.token_provider}"}
 
-        # Attempt standard Google ADC
-        try:
-            import google.auth
-            from google.auth.transport.requests import Request
+        now = time.time()
+        if self._cached_token and now < (self._token_expiry - 60):
+            return {"Authorization": f"Bearer {self._cached_token}"}
 
-            credentials, _ = google.auth.default(
-                scopes=["https://www.googleapis.com/auth/cloud-platform"]
-            )
-            credentials.refresh(Request())
-            return {"Authorization": f"Bearer {credentials.token}"}
-        except Exception as e:
-            logger.debug("Failed to acquire Google ADC credentials: %s", e)
-            return {}
+        async with self._auth_lock:
+            # Double-check after acquiring lock
+            now = time.time()
+            if self._cached_token and now < (self._token_expiry - 60):
+                return {"Authorization": f"Bearer {self._cached_token}"}
+
+            try:
+                import google.auth
+                from google.auth.transport.requests import Request
+
+                credentials, _ = google.auth.default(
+                    scopes=["https://www.googleapis.com/auth/cloud-platform"]
+                )
+                credentials.refresh(Request())
+                self._cached_token = credentials.token
+                if credentials.expiry:
+                    self._token_expiry = credentials.expiry.timestamp()
+                else:
+                    self._token_expiry = now + 3500.0
+                return {"Authorization": f"Bearer {self._cached_token}"}
+            except Exception as e:
+                logger.debug("Failed to acquire Google ADC credentials: %s", e)
+                return {}
 
     async def _send_request_with_backoff(
         self,
@@ -67,51 +106,41 @@ class GCPCapacityHistoryClient:
         payload: dict[str, Any],
     ) -> dict[str, Any]:
         """Send HTTP POST request under rate limiter with jittered exponential backoff."""
-        client_created = False
-        client = self.http_client
+        client = await self.get_http_client()
+        headers = await self._get_auth_headers()
+        headers["Content-Type"] = "application/json"
 
-        if client is None:
-            client = httpx.AsyncClient(http2=True, timeout=30.0)
-            client_created = True
-
-        try:
-            headers = await self._get_auth_headers()
-            headers["Content-Type"] = "application/json"
-
-            for attempt in range(self.max_retries + 1):
-                async with self.rate_limiter:
-                    try:
-                        response = await client.post(url, json=payload, headers=headers)
-                    except httpx.RequestError as exc:
-                        if attempt == self.max_retries:
-                            raise
-                        logger.warning("Network error contacting GCP API: %s (attempt %d/%d)", exc, attempt + 1, self.max_retries)
-                        backoff = (self.base_backoff_sec * (2 ** attempt)) + random.uniform(0.1, 0.5)
-                        await asyncio.sleep(backoff)
-                        continue
-
-                # Handle rate-limiting (429) or transient service unavailability (503)
-                if response.status_code in (429, 503):
+        for attempt in range(self.max_retries + 1):
+            async with self.rate_limiter:
+                try:
+                    response = await client.post(url, json=payload, headers=headers)
+                except httpx.RequestError as exc:
                     if attempt == self.max_retries:
-                        response.raise_for_status()
+                        raise
+                    logger.warning("Network error contacting GCP API: %s (attempt %d/%d)", exc, attempt + 1, self.max_retries)
                     backoff = (self.base_backoff_sec * (2 ** attempt)) + random.uniform(0.1, 0.5)
-                    logger.warning(
-                        "GCP API returned %d; retrying in %.2fs (attempt %d/%d)",
-                        response.status_code,
-                        backoff,
-                        attempt + 1,
-                        self.max_retries,
-                    )
                     await asyncio.sleep(backoff)
                     continue
 
-                response.raise_for_status()
-                return response.json()
+            # Handle rate-limiting (429) or transient service unavailability (503)
+            if response.status_code in (429, 503):
+                if attempt == self.max_retries:
+                    response.raise_for_status()
+                backoff = (self.base_backoff_sec * (2 ** attempt)) + random.uniform(0.1, 0.5)
+                logger.warning(
+                    "GCP API returned %d; retrying in %.2fs (attempt %d/%d)",
+                    response.status_code,
+                    backoff,
+                    attempt + 1,
+                    self.max_retries,
+                )
+                await asyncio.sleep(backoff)
+                continue
 
-            raise RuntimeError("Unexpected exhaustion of retry loop")
-        finally:
-            if client_created:
-                await client.aclose()
+            response.raise_for_status()
+            return response.json()
+
+        raise RuntimeError("Unexpected exhaustion of retry loop")
 
     async def fetch_preemption_history(
         self,

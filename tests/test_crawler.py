@@ -163,3 +163,79 @@ async def test_crawl_engine_run(mock_preemption_api_response, mock_price_api_res
 
         first_price = price_records[0]
         assert first_price.current_hourly_price == 0.1824
+
+
+@pytest.mark.asyncio
+async def test_client_shared_session_and_token_cache(mock_preemption_api_response):
+    async def mock_handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(200, json=mock_preemption_api_response)
+
+    transport = httpx.MockTransport(mock_handler)
+    async with GCPCapacityHistoryClient(
+        token_provider="fake-token",
+        http_client=httpx.AsyncClient(transport=transport),
+    ) as client:
+        # Verify shared client lifecycle
+        http_c1 = await client.get_http_client()
+        http_c2 = await client.get_http_client()
+        assert http_c1 is http_c2
+
+        # Verify token caching
+        client._cached_token = "cached-jwt-123"
+        client._token_expiry = time.time() + 1800
+        client.token_provider = None  # Force reliance on cached token
+        headers = await client._get_auth_headers()
+        assert headers == {"Authorization": "Bearer cached-jwt-123"}
+
+
+@pytest.mark.asyncio
+async def test_crawl_engine_streaming_callback(mock_preemption_api_response, mock_price_api_response):
+    async def mock_handler(request: httpx.Request) -> httpx.Response:
+        content = request.read().decode("utf-8")
+        if "PREEMPTION" in content:
+            return httpx.Response(200, json=mock_preemption_api_response)
+        return httpx.Response(200, json=mock_price_api_response)
+
+    transport = httpx.MockTransport(mock_handler)
+    async with httpx.AsyncClient(transport=transport) as http_client:
+        client = GCPCapacityHistoryClient(
+            token_provider="fake-token",
+            http_client=http_client,
+            base_backoff_sec=0.01,
+        )
+
+        catalog = CatalogConfig(
+            regions=[RegionConfig(region="europe-west4", zones=["europe-west4-a", "europe-west4-b"])],
+            families=[
+                MachineFamilyConfig(
+                    family="c4d",
+                    machine_types=["c4d-standard-8"],
+                    equivalent_families=["c3d"],
+                )
+            ],
+        )
+
+        streamed_batches: list[tuple[str, int, int]] = []
+
+        async def mock_stream_sink(reg, p_recs, pr_recs):
+            streamed_batches.append((reg, len(p_recs), len(pr_recs)))
+
+        engine = CrawlEngine(client=client, catalog=catalog, project="test-proj")
+        preempt_records, price_records, summary = await engine.run(
+            on_region_complete=mock_stream_sink,
+        )
+
+        # In streaming mode, in-memory return lists are empty to save RAM
+        assert len(preempt_records) == 0
+        assert len(price_records) == 0
+
+        # But callback received the records
+        assert len(streamed_batches) == 1
+        assert streamed_batches[0] == ("europe-west4", 2, 1)
+
+        # Summary tracks full metrics
+        assert summary.successful_preemption_queries == 2
+        assert summary.successful_price_queries == 1
+        assert summary.total_preemption_pools == 2
+        assert summary.total_price_pools == 1
+

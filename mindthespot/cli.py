@@ -11,6 +11,7 @@ from rich.table import Table
 from mindthespot.config.loader import load_catalog, load_watchlist
 from mindthespot.crawler.client import GCPCapacityHistoryClient
 from mindthespot.crawler.extractor import CrawlEngine
+from mindthespot.crawler.models import PreemptionSnapshotRecord, PriceSnapshotRecord
 
 app = typer.Typer(
     name="mindthespot",
@@ -69,60 +70,76 @@ def crawl(
 
     async def _run():
         client = GCPCapacityHistoryClient()
-        engine = CrawlEngine(
-            client=client,
-            catalog=catalog,
-            watchlist=watchlist,
-            project=project,
-        )
+        async with client:
+            storage = None
+            if not dry_run and output == "bigquery":
+                from mindthespot.storage.bigquery_client import BigQueryStorageClient
+                from mindthespot.storage.schemas import (
+                    transform_preemption_records_to_rows,
+                    transform_price_records_to_rows,
+                )
 
-        preempt_records, price_records, summary = await engine.run(
-            region_filter=region,
-            family_filter=family,
-        )
+                storage = BigQueryStorageClient(project=project, dataset=dataset)
+                storage.ensure_dataset_and_tables()
 
-        # Print summary table
-        table = Table(title="📊 MindTheSpot Crawl Summary", border_style="cyan")
-        table.add_column("Metric", style="bold")
-        table.add_column("Value", style="green")
+            total_p_streamed = 0
+            total_pr_streamed = 0
 
-        table.add_row("Snapshot Date", summary.snapshot_date)
-        table.add_row("Duration", f"{summary.duration_seconds:.2f}s")
-        table.add_row("Preemption Pools Target", str(summary.total_preemption_pools))
-        table.add_row("Preemption Queries OK", str(summary.successful_preemption_queries))
-        table.add_row("Price Pools Target", str(summary.total_price_pools))
-        table.add_row("Price Queries OK", str(summary.successful_price_queries))
-        table.add_row("Failed Queries", str(summary.failed_queries))
+            async def _on_region_complete(
+                reg: str,
+                p_records: list[PreemptionSnapshotRecord],
+                pr_records: list[PriceSnapshotRecord],
+            ) -> None:
+                nonlocal total_p_streamed, total_pr_streamed
+                if storage and (p_records or pr_records):
+                    p_rows = transform_preemption_records_to_rows(p_records)
+                    pr_rows = transform_price_records_to_rows(pr_records)
+                    p_inserted = storage.insert_preemption_rows(p_rows)
+                    pr_inserted = storage.insert_price_rows(pr_rows)
+                    total_p_streamed += p_inserted
+                    total_pr_streamed += pr_inserted
+                    console.print(
+                        f"[dim cyan]  ↳ Streamed {reg}: {p_inserted} preemption rows, {pr_inserted} price rows to BigQuery[/dim cyan]"
+                    )
 
-        console.print(table)
-
-        if not dry_run and output == "bigquery":
-            console.print(
-                f"[bold cyan]📦 Persisting {len(preempt_records)} preemption and "
-                f"{len(price_records)} price records to BigQuery [{project}.{dataset}]...[/bold cyan]"
+            engine = CrawlEngine(
+                client=client,
+                catalog=catalog,
+                watchlist=watchlist,
+                project=project,
             )
-            from mindthespot.storage.bigquery_client import BigQueryStorageClient
-            from mindthespot.storage.schemas import (
-                transform_preemption_records_to_rows,
-                transform_price_records_to_rows,
+
+            preempt_records, price_records, summary = await engine.run(
+                region_filter=region,
+                family_filter=family,
+                on_region_complete=_on_region_complete if storage else None,
             )
 
-            storage = BigQueryStorageClient(project=project, dataset=dataset)
-            storage.ensure_dataset_and_tables()
-            p_rows = transform_preemption_records_to_rows(preempt_records)
-            pr_rows = transform_price_records_to_rows(price_records)
+            # Print summary table
+            table = Table(title="📊 MindTheSpot Crawl Summary", border_style="cyan")
+            table.add_column("Metric", style="bold")
+            table.add_column("Value", style="green")
 
-            p_count = storage.insert_preemption_rows(p_rows)
-            pr_count = storage.insert_price_rows(pr_rows)
-            console.print(
-                f"[bold green]✅ Successfully persisted {p_count} preemption rows and "
-                f"{pr_count} price rows into BigQuery.[/bold green]"
-            )
-        elif dry_run or output == "console":
-            console.print(
-                f"[yellow]ℹ️ Dry-run mode active. {len(preempt_records)} preemption and "
-                f"{len(price_records)} price records collected (no database writes).[/yellow]"
-            )
+            table.add_row("Snapshot Date", summary.snapshot_date)
+            table.add_row("Duration", f"{summary.duration_seconds:.2f}s")
+            table.add_row("Preemption Pools Target", str(summary.total_preemption_pools))
+            table.add_row("Preemption Queries OK", str(summary.successful_preemption_queries))
+            table.add_row("Price Pools Target", str(summary.total_price_pools))
+            table.add_row("Price Queries OK", str(summary.successful_price_queries))
+            table.add_row("Failed Queries", str(summary.failed_queries))
+
+            console.print(table)
+
+            if not dry_run and output == "bigquery":
+                console.print(
+                    f"[bold green]✅ Successfully streamed {total_p_streamed} preemption rows and "
+                    f"{total_pr_streamed} price rows into BigQuery [{project}.{dataset}].[/bold green]"
+                )
+            elif dry_run or output == "console":
+                console.print(
+                    f"[yellow]ℹ️ Dry-run mode active. {len(preempt_records)} preemption and "
+                    f"{len(price_records)} price records collected (no database writes).[/yellow]"
+                )
 
     asyncio.run(_run())
 
