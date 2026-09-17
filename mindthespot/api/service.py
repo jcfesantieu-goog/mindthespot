@@ -1,6 +1,9 @@
-"""Service layer providing Spot telemetry, statistical metrics, and pivot calculations."""
-
+from collections import defaultdict
+from concurrent.futures import ThreadPoolExecutor
+import logging
+import os
 import random
+import threading
 from datetime import UTC, datetime, timedelta
 from typing import Any
 
@@ -11,7 +14,7 @@ from mindthespot.analytics.statistical import (
     compute_preemption_regime_shift,
     detect_price_step_change,
 )
-from mindthespot.api.cache import get_cached, set_cached
+from mindthespot.api.cache import clear_cache, get_cached, set_cached
 from mindthespot.api.schemas import (
     AnomalyResponse,
     PivotRecommendationResponse,
@@ -28,6 +31,8 @@ from mindthespot.config.models import (
 )
 from mindthespot.crawler.models import DailyPreemptionRate, PriceIntervalRecord
 
+logger = logging.getLogger(__name__)
+
 
 class SpotDataService:
     """Provides analytical spot data, regime shift metrics, and pivot fallbacks."""
@@ -36,12 +41,34 @@ class SpotDataService:
         self,
         catalog: CatalogConfig | None = None,
         watchlist: WatchlistConfig | None = None,
+        pre_warm: bool = False,
+        project_id: str | None = None,
     ) -> None:
         self.catalog = catalog or load_catalog()
         self.watchlist = watchlist or load_watchlist()
         self._custom_watchlist_entries: list[WatchlistEntry] = []
-        self._synthetic_pool_cache: dict[str, dict[str, Any]] = {}
+        self._pool_cache: dict[str, dict[str, Any]] = {}
+        self._data_source: str = "synthetic"
+        self._last_synced_at: datetime | None = None
+        self._total_price_intervals: int = 0
+        self._total_preemption_points: int = 0
+        self._is_warming: bool = False
+        self._lock = threading.Lock()
+
+        # Seed initial synthetic dataset by default (safe instant startup)
         self._initialize_synthetic_dataset()
+
+        if pre_warm:
+            self.warm_cache_from_bigquery(project_id)
+
+    @property
+    def _synthetic_pool_cache(self) -> dict[str, dict[str, Any]]:
+        return self._pool_cache
+
+    @_synthetic_pool_cache.setter
+    def _synthetic_pool_cache(self, value: dict[str, dict[str, Any]]) -> None:
+        self._pool_cache = value
+
 
     def _initialize_synthetic_dataset(self) -> None:
         """Seed realistic 30-day preemption and price histories for catalog pools."""
@@ -152,6 +179,187 @@ class SpotDataService:
                 "price_hike_detected": is_hike,
                 "price_hike_pct": hike_pct,
             }
+
+        self._data_source = "synthetic"
+        self._last_synced_at = datetime.now(UTC)
+        self._total_price_intervals = sum(len(d["intervals"]) for d in self._pool_cache.values())
+        self._total_preemption_points = sum(len(d["rates"]) for d in self._pool_cache.values())
+
+    def warm_cache_from_bigquery(self, project_id: str | None = None) -> bool:
+        """Pre-warm in-memory cache directly from BigQuery tables and analytical views.
+
+        Loads mindthespot_analytics.v_regime_shifts, mindthespot_raw.price_history,
+        and mindthespot_raw.preemption_history into memory. Falls back to synthetic dataset
+        if BigQuery is unavailable or unauthenticated.
+        """
+        pid = (
+            project_id
+            or os.getenv("GCP_PROJECT")
+            or os.getenv("PROJECT_ID")
+            or "jcf-mindthespot"
+        )
+        self._is_warming = True
+        logger.info("Pre-warming MindTheSpot cache from BigQuery in project: %s", pid)
+
+        try:
+            from google.cloud import bigquery
+
+            client = bigquery.Client(project=pid)
+
+            def run_q(query: str):
+                return list(client.query(query).result())
+
+            q_shifts = f"""
+            SELECT region, zone, machine_type, family, is_watchlist, custom_label,
+                   recent_7d_rate, baseline_rate, rate_delta, z_score,
+                   hourly_price, currency, price_hike_detected, severity
+            FROM `{pid}.mindthespot_analytics.v_regime_shifts`
+            """
+
+            q_prices = f"""
+            SELECT region, machine_type, interval_start, interval_end, hourly_price, currency
+            FROM `{pid}.mindthespot_raw.price_history`
+            ORDER BY region, machine_type, interval_start ASC
+            """
+
+            q_preempt = f"""
+            SELECT region, zone, machine_type, telemetry_date, preemption_rate
+            FROM `{pid}.mindthespot_raw.preemption_history`
+            WHERE snapshot_date = (SELECT MAX(snapshot_date) FROM `{pid}.mindthespot_raw.preemption_history`)
+            ORDER BY region, zone, machine_type, telemetry_date ASC
+            """
+
+            with ThreadPoolExecutor(max_workers=3) as executor:
+                fut_shifts = executor.submit(run_q, q_shifts)
+                fut_prices = executor.submit(run_q, q_prices)
+                fut_preempt = executor.submit(run_q, q_preempt)
+
+                shifts = fut_shifts.result()
+                prices = fut_prices.result()
+                preempts = fut_preempt.result()
+
+            price_map: dict[tuple[str, str], list[PriceIntervalRecord]] = defaultdict(list)
+            for p in prices:
+                reg = p.region.strip().lower()
+                mt = p.machine_type.strip().lower()
+                start_str = p.interval_start.isoformat() if p.interval_start else ""
+                end_str = p.interval_end.isoformat() if p.interval_end else None
+                price_map[(reg, mt)].append(
+                    PriceIntervalRecord(
+                        start_time=start_str,
+                        end_time=end_str,
+                        hourly_price=round(float(p.hourly_price), 6),
+                        currency=p.currency or "USD",
+                    )
+                )
+
+            preempt_map: dict[tuple[str, str, str], list[DailyPreemptionRate]] = defaultdict(list)
+            for pr in preempts:
+                reg = pr.region.strip().lower()
+                zn = pr.zone.strip().lower()
+                mt = pr.machine_type.strip().lower()
+                d_str = pr.telemetry_date.isoformat() if pr.telemetry_date else ""
+                preempt_map[(reg, zn, mt)].append(
+                    DailyPreemptionRate(
+                        date=d_str,
+                        preemption_rate=round(float(pr.preemption_rate), 4),
+                    )
+                )
+
+            new_cache: dict[str, dict[str, Any]] = {}
+            for s in shifts:
+                reg = s.region.strip().lower()
+                zn = s.zone.strip().lower()
+                mt = s.machine_type.strip().lower()
+                key = f"{reg}/{zn}/{mt}"
+
+                rates = preempt_map.get((reg, zn, mt), [])
+                intervals = price_map.get((reg, mt), [])
+
+                latest_rate = rates[-1].preemption_rate if rates else (s.recent_7d_rate or 0.0)
+
+                target = InstancePoolTarget(
+                    region=reg,
+                    zone=zn,
+                    machine_type=mt,
+                    family=s.family or mt.split("-")[0],
+                    is_watchlist=bool(s.is_watchlist),
+                    custom_label=s.custom_label,
+                )
+
+                metrics = {
+                    "latest_rate": round(float(latest_rate), 4),
+                    "recent_7d_rate": round(float(s.recent_7d_rate or 0.0), 4),
+                    "baseline_rate": round(float(s.baseline_rate or 0.0), 4),
+                    "rate_delta": round(float(s.rate_delta or 0.0), 4),
+                    "z_score": round(float(s.z_score or 0.0), 2),
+                    "severity": s.severity or "STABLE",
+                }
+
+                current_price = float(
+                    s.hourly_price
+                    if s.hourly_price is not None
+                    else (intervals[-1].hourly_price if intervals else 0.0)
+                )
+
+                new_cache[key] = {
+                    "target": target,
+                    "rates": rates,
+                    "intervals": intervals,
+                    "metrics": metrics,
+                    "hourly_price": round(current_price, 6),
+                    "price_hike_detected": bool(s.price_hike_detected),
+                    "price_hike_pct": None,
+                }
+
+            with self._lock:
+                self._pool_cache = new_cache
+                self._data_source = "bigquery"
+                self._last_synced_at = datetime.now(UTC)
+                self._total_price_intervals = len(prices)
+                self._total_preemption_points = len(preempts)
+
+            clear_cache()
+            logger.info(
+                "Successfully pre-warmed cache from BigQuery with %d pools (%d price intervals, %d daily rates)",
+                len(new_cache),
+                len(prices),
+                len(preempts),
+            )
+            return True
+
+        except Exception as exc:
+            logger.warning(
+                "Could not pre-warm cache from BigQuery (%s). Keeping active cache (source=%s).",
+                exc,
+                self._data_source,
+            )
+            if not self._pool_cache:
+                self._initialize_synthetic_dataset()
+            return False
+        finally:
+            self._is_warming = False
+
+    def trigger_background_sync(self, project_id: str | None = None) -> None:
+        """Spawns background thread to refresh cache asynchronously without blocking serving."""
+        thread = threading.Thread(
+            target=self.warm_cache_from_bigquery,
+            args=(project_id,),
+            daemon=True,
+        )
+        thread.start()
+
+    def get_cache_status(self) -> dict[str, Any]:
+        """Return cache metadata, source status, and row counts."""
+        return {
+            "source": self._data_source,
+            "last_synced_at": self._last_synced_at.isoformat() if self._last_synced_at else None,
+            "total_pools_cached": len(self._pool_cache),
+            "total_price_intervals": self._total_price_intervals,
+            "total_preemption_points": self._total_preemption_points,
+            "is_warming": self._is_warming,
+        }
+
 
     def get_all_pools(
         self,

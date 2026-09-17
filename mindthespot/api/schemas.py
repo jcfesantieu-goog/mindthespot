@@ -91,3 +91,23 @@ class WatchlistCreateRequest(BaseModel):
     machine_types: list[str] = Field(..., min_length=1)
     alert_threshold_z: float | None = None
     alert_threshold_delta: float | None = None
+
+
+class CacheStatusResponse(BaseModel):
+    """Status and telemetry source of the in-memory cache."""
+
+    source: str  # "bigquery" or "synthetic"
+    last_synced_at: str | None = None
+    total_pools_cached: int
+    total_price_intervals: int
+    total_preemption_points: int
+    is_warming: bool = False
+
+
+class CacheRefreshResponse(BaseModel):
+    """Response from asynchronous cache refresh trigger."""
+
+    status: str
+    message: str
+    triggered_at: str
+

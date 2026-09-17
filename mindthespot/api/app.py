@@ -1,6 +1,6 @@
-"""FastAPI application entrypoint for MindTheSpot."""
-
 import logging
+import os
+from contextlib import asynccontextmanager
 from pathlib import Path
 
 from fastapi import FastAPI
@@ -8,11 +8,27 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 
+from mindthespot.api.routes import get_spot_service
 from mindthespot.api.routes import router as api_router
 
 logger = logging.getLogger(__name__)
 
 FRONTEND_DIST_DIR = Path(__file__).resolve().parent.parent.parent / "frontend" / "dist"
+
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    """Lifespan context manager to pre-warm cache on application boot."""
+    logger.info("Initializing MindTheSpot API application lifespan...")
+    service = get_spot_service()
+    if os.getenv("SYNC_PREWARM", "false").lower() in ("true", "1", "yes"):
+        logger.info("Performing synchronous cache pre-warm from BigQuery...")
+        service.warm_cache_from_bigquery()
+    else:
+        logger.info("Triggering asynchronous background pre-warm from BigQuery...")
+        service.trigger_background_sync()
+    yield
+    logger.info("MindTheSpot API shutting down.")
 
 
 def create_app() -> FastAPI:
@@ -24,7 +40,9 @@ def create_app() -> FastAPI:
         docs_url="/api/docs",
         redoc_url="/api/redoc",
         openapi_url="/api/openapi.json",
+        lifespan=lifespan,
     )
+
 
     # CORS configuration for frontend dev server
     app.add_middleware(

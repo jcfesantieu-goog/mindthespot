@@ -42,7 +42,7 @@ pool_windows AS (
   GROUP BY region, zone, machine_type, family
 ),
 
-active_prices AS (
+ranked_prices AS (
   SELECT
     pr.region,
     pr.machine_type,
@@ -54,28 +54,20 @@ active_prices AS (
     ) AS price_rank_desc
   FROM `${project}.${dataset_raw}.price_history` pr
   INNER JOIN latest_snapshot s ON pr.snapshot_date = s.max_snapshot_date
-  WHERE pr.interval_end IS NULL
 ),
 
 latest_prices AS (
   SELECT region, machine_type, hourly_price, currency
-  FROM active_prices
+  FROM ranked_prices
   WHERE price_rank_desc = 1
 ),
 
 previous_prices AS (
-  SELECT
-    pr.region,
-    pr.machine_type,
-    pr.hourly_price AS prev_hourly_price,
-    ROW_NUMBER() OVER (
-      PARTITION BY pr.region, pr.machine_type
-      ORDER BY pr.interval_start DESC
-    ) AS price_rank_desc
-  FROM `${project}.${dataset_raw}.price_history` pr
-  INNER JOIN latest_snapshot s ON pr.snapshot_date = s.max_snapshot_date
-  WHERE pr.interval_end IS NOT NULL
+  SELECT region, machine_type, hourly_price AS prev_hourly_price
+  FROM ranked_prices
+  WHERE price_rank_desc = 2
 )
+
 
 SELECT
   w.region,
@@ -112,5 +104,5 @@ SELECT
   END AS severity
 FROM pool_windows w
 LEFT JOIN latest_prices lp ON w.region = lp.region AND w.machine_type = lp.machine_type
-LEFT JOIN (SELECT region, machine_type, prev_hourly_price FROM previous_prices WHERE price_rank_desc = 1) pp
-  ON w.region = pp.region AND w.machine_type = pp.machine_type
+LEFT JOIN previous_prices pp ON w.region = pp.region AND w.machine_type = pp.machine_type
+

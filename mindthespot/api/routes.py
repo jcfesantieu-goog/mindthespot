@@ -8,6 +8,8 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from mindthespot.api.auth import UserContext, get_current_user_context
 from mindthespot.api.schemas import (
     AnomalyResponse,
+    CacheRefreshResponse,
+    CacheStatusResponse,
     HealthResponse,
     PivotRecommendationResponse,
     PoolHistoryResponse,
@@ -15,6 +17,7 @@ from mindthespot.api.schemas import (
     WatchlistCreateRequest,
 )
 from mindthespot.api.service import SpotDataService
+
 from mindthespot.config.models import WatchlistEntry
 
 router = APIRouter(prefix="/api")
@@ -152,4 +155,27 @@ def get_authenticated_user(
 ) -> UserContext:
     """Retrieve the current user's authenticated identity from Cloud IAP."""
     return user
+
+
+@router.get("/v1/cache/status", response_model=CacheStatusResponse, tags=["Cache"])
+def get_cache_status(
+    service: Annotated[SpotDataService, Depends(get_spot_service)],
+) -> CacheStatusResponse:
+    """Retrieve in-memory cache metadata, sync timestamp, and telemetry source."""
+    status = service.get_cache_status()
+    return CacheStatusResponse(**status)
+
+
+@router.post("/v1/cache/refresh", response_model=CacheRefreshResponse, tags=["Cache"])
+def refresh_cache(
+    service: Annotated[SpotDataService, Depends(get_spot_service)],
+) -> CacheRefreshResponse:
+    """Trigger an asynchronous, non-blocking cache refresh from BigQuery."""
+    service.trigger_background_sync()
+    return CacheRefreshResponse(
+        status="triggered",
+        message="Background cache synchronization from BigQuery initiated.",
+        triggered_at=datetime.now(UTC).isoformat(),
+    )
+
 
