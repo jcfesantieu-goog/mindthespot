@@ -52,16 +52,16 @@ export const App: React.FC = () => {
   const loadAllData = async () => {
     setIsRefreshing(true);
     try {
-      const [anomData, poolData, watchData, userData] = await Promise.all([
+      const [anomRes, poolRes, watchRes, userRes] = await Promise.allSettled([
         fetchAnomalies(),
         fetchPools(),
         fetchWatchlist(),
         fetchCurrentUser(),
       ]);
-      setAnomalies(anomData);
-      setPools(poolData);
-      setWatchlist(watchData);
-      setUserContext(userData);
+      if (anomRes.status === "fulfilled") setAnomalies(anomRes.value);
+      if (poolRes.status === "fulfilled") setPools(poolRes.value);
+      if (watchRes.status === "fulfilled") setWatchlist(watchRes.value);
+      if (userRes.status === "fulfilled") setUserContext(userRes.value);
       setLastRefreshed(new Date().toLocaleTimeString());
     } catch (err) {
       console.error("Error loading MindTheSpot data:", err);

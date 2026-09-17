@@ -111,6 +111,10 @@ def test_service_warm_cache_mocked_bigquery():
         assert len(pool.intervals) == 1
         assert len(pool.rates) == 1
 
+        # Check anomalies response serialization
+        anomalies = service.get_anomalies()
+        assert isinstance(anomalies, list)
+
 
 def test_service_warm_cache_failure_fallback():
     """Verify service gracefully retains cache when BigQuery query fails."""

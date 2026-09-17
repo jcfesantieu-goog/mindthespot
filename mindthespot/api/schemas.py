@@ -32,7 +32,7 @@ class AnomalyResponse(BaseModel):
     hourly_price: float
     severity: str  # CRITICAL, ELEVATED, STABLE
     price_hike_detected: bool = False
-    price_hike_pct: float = 0.0
+    price_hike_pct: float | None = 0.0
     pivot_count: int = 0
 
 

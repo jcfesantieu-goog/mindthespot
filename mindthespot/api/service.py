@@ -302,6 +302,11 @@ class SpotDataService:
                     else (intervals[-1].hourly_price if intervals else 0.0)
                 )
 
+                price_hike_pct = 0.0
+                if len(intervals) >= 2 and intervals[-2].hourly_price > 0:
+                    prev_p = intervals[-2].hourly_price
+                    price_hike_pct = round(((current_price - prev_p) / prev_p) * 100.0, 2)
+
                 new_cache[key] = {
                     "target": target,
                     "rates": rates,
@@ -309,7 +314,7 @@ class SpotDataService:
                     "metrics": metrics,
                     "hourly_price": round(current_price, 6),
                     "price_hike_detected": bool(s.price_hike_detected),
-                    "price_hike_pct": None,
+                    "price_hike_pct": price_hike_pct,
                 }
 
             with self._lock:
@@ -496,8 +501,8 @@ class SpotDataService:
                     z_score=metrics["z_score"],
                     hourly_price=data["hourly_price"],
                     severity=sev,
-                    price_hike_detected=data["price_hike_detected"],
-                    price_hike_pct=data["price_hike_pct"],
+                    price_hike_detected=bool(data.get("price_hike_detected", False)),
+                    price_hike_pct=float(data.get("price_hike_pct") or 0.0),
                     pivot_count=len(pivots),
                 )
             )
