@@ -1,6 +1,7 @@
 """Command-line interface for MindTheSpot."""
 
 import asyncio
+import os
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Annotated
@@ -267,5 +268,42 @@ def list_pivots_cli(
     console.print(table)
 
 
+@app.command("seed-pricing")
+def seed_pricing_cli(
+    project: Annotated[
+        str | None,
+        typer.Option(
+            "--project",
+            "-p",
+            envvar="MINDTHESPOT_GCP_PROJECT",
+            help="GCP Project ID hosting BigQuery dataset",
+        ),
+    ] = None,
+    dataset: Annotated[
+        str,
+        typer.Option(
+            "--dataset",
+            "-d",
+            envvar="MINDTHESPOT_BQ_DATASET",
+            help="BigQuery dataset containing raw telemetry",
+        ),
+    ] = "mindthespot_raw",
+) -> None:
+    """Seed or refresh GCP Compute Engine public on-demand list pricing table in BigQuery."""
+    from mindthespot.storage.bigquery_client import BigQueryStorageClient
+
+    target_project = project or os.environ.get("GOOGLE_CLOUD_PROJECT", "")
+    if not target_project:
+        console.print("[red]Error: GCP project ID must be specified via --project or MINDTHESPOT_GCP_PROJECT[/red]")
+        raise typer.Exit(code=1)
+
+    console.print(f"[bold cyan]Seeding on-demand pricing reference into {target_project}.{dataset}.on_demand_pricing...[/bold cyan]")
+    storage = BigQueryStorageClient(project=target_project, dataset=dataset)
+    storage.ensure_dataset_and_tables()
+    count = storage.seed_on_demand_pricing()
+    console.print(f"[bold green]Successfully seeded {count} on-demand pricing rows into BigQuery![/bold green]")
+
+
 if __name__ == "__main__":
     app()
+

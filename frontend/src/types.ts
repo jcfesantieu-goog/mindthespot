@@ -14,6 +14,8 @@ export interface AnomalyItem {
   rate_delta: number;
   z_score: number;
   hourly_price: number;
+  ondemand_hourly_price?: number;
+  spot_discount_pct?: number;
   severity: Severity;
   price_hike_detected: boolean;
   price_drop_detected?: boolean;
@@ -34,6 +36,8 @@ export interface PoolSummary {
   avg_7d_rate: number;
   avg_30d_rate: number;
   hourly_price: number;
+  ondemand_hourly_price?: number;
+  spot_discount_pct?: number;
   severity: Severity;
   price_hike_detected?: boolean;
   price_drop_detected?: boolean;
@@ -69,6 +73,8 @@ export interface PoolHistory {
   z_score: number;
   severity: Severity;
   current_hourly_price: number;
+  ondemand_hourly_price?: number;
+  spot_discount_pct?: number;
 }
 
 export interface PivotCandidate {
@@ -85,6 +91,8 @@ export interface PivotCandidate {
   pivot_family: string;
   pivot_7d_rate: number;
   pivot_hourly_price: number;
+  pivot_ondemand_price?: number;
+  pivot_discount_pct?: number;
   preemption_savings: number;
   cost_difference: number;
   cost_savings_pct?: number;

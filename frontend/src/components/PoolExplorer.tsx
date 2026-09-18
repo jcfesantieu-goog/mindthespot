@@ -23,6 +23,19 @@ export const PoolExplorer: React.FC<PoolExplorerProps> = ({
   const [currentPage, setCurrentPage] = useState<number>(1);
   const [pageSize, setPageSize] = useState<number>(50);
 
+  type SortField =
+    | "machine_type"
+    | "region"
+    | "family"
+    | "avg_7d_rate"
+    | "avg_30d_rate"
+    | "hourly_price"
+    | "spot_discount_pct"
+    | "severity";
+
+  const [sortField, setSortField] = useState<SortField | null>(null);
+  const [sortOrder, setSortOrder] = useState<"asc" | "desc">("desc");
+
   // Dynamically extract unique regions and families from loaded pools
   const regions = [
     "ALL",
@@ -54,6 +67,25 @@ export const PoolExplorer: React.FC<PoolExplorerProps> = ({
     setCurrentPage(1);
   };
 
+  const handleSort = (field: SortField) => {
+    if (sortField === field) {
+      if (sortOrder === "desc") {
+        setSortOrder("asc");
+      } else {
+        setSortField(null);
+        setSortOrder("desc");
+      }
+    } else {
+      setSortField(field);
+      setSortOrder(
+        field === "spot_discount_pct" || field === "avg_7d_rate" || field === "avg_30d_rate"
+          ? "desc"
+          : "asc"
+      );
+    }
+    setCurrentPage(1);
+  };
+
   const filteredPools = pools.filter((p) => {
     if (watchlistOnly && !p.is_watchlist) return false;
     if (selectedRegion !== "ALL" && p.region !== selectedRegion) return false;
@@ -71,13 +103,37 @@ export const PoolExplorer: React.FC<PoolExplorerProps> = ({
     return true;
   });
 
+  const sortedPools = [...filteredPools].sort((a, b) => {
+    if (!sortField) return 0;
+    let comparison = 0;
+    if (sortField === "machine_type") {
+      comparison = a.machine_type.localeCompare(b.machine_type);
+    } else if (sortField === "region") {
+      comparison = a.region.localeCompare(b.region);
+    } else if (sortField === "family") {
+      comparison = a.family.localeCompare(b.family);
+    } else if (sortField === "avg_7d_rate") {
+      comparison = a.avg_7d_rate - b.avg_7d_rate;
+    } else if (sortField === "avg_30d_rate") {
+      comparison = a.avg_30d_rate - b.avg_30d_rate;
+    } else if (sortField === "hourly_price") {
+      comparison = a.hourly_price - b.hourly_price;
+    } else if (sortField === "spot_discount_pct") {
+      comparison = (a.spot_discount_pct ?? 0) - (b.spot_discount_pct ?? 0);
+    } else if (sortField === "severity") {
+      const order = { CRITICAL: 3, ELEVATED: 2, STABLE: 1 };
+      comparison = (order[a.severity] || 0) - (order[b.severity] || 0);
+    }
+    return sortOrder === "asc" ? comparison : -comparison;
+  });
+
   // Client-side pagination calculation to prevent DOM overload
-  const totalItems = filteredPools.length;
+  const totalItems = sortedPools.length;
   const totalPages = Math.max(1, Math.ceil(totalItems / pageSize));
   const activePage = Math.min(currentPage, totalPages);
   const startIdx = totalItems === 0 ? 0 : (activePage - 1) * pageSize;
   const endIdx = Math.min(startIdx + pageSize, totalItems);
-  const paginatedPools = filteredPools.slice(startIdx, endIdx);
+  const paginatedPools = sortedPools.slice(startIdx, endIdx);
 
   return (
     <div className="space-y-4">
@@ -153,20 +209,85 @@ export const PoolExplorer: React.FC<PoolExplorerProps> = ({
           <table className="w-full text-left text-xs font-mono">
             <thead className="bg-slate-950 text-slate-400 uppercase tracking-wider border-b border-slate-800 text-[11px]">
               <tr>
-                <th className="py-3 px-4">Pool / Machine Type</th>
-                <th className="py-3 px-4">Region / Zone</th>
-                <th className="py-3 px-4">Family</th>
-                <th className="py-3 px-4">7d Recent Avg</th>
-                <th className="py-3 px-4">30d Avg</th>
-                <th className="py-3 px-4">Hourly Spot</th>
-                <th className="py-3 px-4">Severity</th>
+                <th
+                  onClick={() => handleSort("machine_type")}
+                  className="py-3 px-4 cursor-pointer hover:text-cyan-300 transition-colors select-none"
+                >
+                  <div className="flex items-center gap-1">
+                    <span>Pool / Machine Type</span>
+                    {sortField === "machine_type" && (sortOrder === "asc" ? "▲" : "▼")}
+                  </div>
+                </th>
+                <th
+                  onClick={() => handleSort("region")}
+                  className="py-3 px-4 cursor-pointer hover:text-cyan-300 transition-colors select-none"
+                >
+                  <div className="flex items-center gap-1">
+                    <span>Region / Zone</span>
+                    {sortField === "region" && (sortOrder === "asc" ? "▲" : "▼")}
+                  </div>
+                </th>
+                <th
+                  onClick={() => handleSort("family")}
+                  className="py-3 px-4 cursor-pointer hover:text-cyan-300 transition-colors select-none"
+                >
+                  <div className="flex items-center gap-1">
+                    <span>Family</span>
+                    {sortField === "family" && (sortOrder === "asc" ? "▲" : "▼")}
+                  </div>
+                </th>
+                <th
+                  onClick={() => handleSort("avg_7d_rate")}
+                  className="py-3 px-4 cursor-pointer hover:text-cyan-300 transition-colors select-none"
+                >
+                  <div className="flex items-center gap-1">
+                    <span>7d Recent Avg</span>
+                    {sortField === "avg_7d_rate" && (sortOrder === "asc" ? "▲" : "▼")}
+                  </div>
+                </th>
+                <th
+                  onClick={() => handleSort("avg_30d_rate")}
+                  className="py-3 px-4 cursor-pointer hover:text-cyan-300 transition-colors select-none"
+                >
+                  <div className="flex items-center gap-1">
+                    <span>30d Avg</span>
+                    {sortField === "avg_30d_rate" && (sortOrder === "asc" ? "▲" : "▼")}
+                  </div>
+                </th>
+                <th
+                  onClick={() => handleSort("hourly_price")}
+                  className="py-3 px-4 cursor-pointer hover:text-cyan-300 transition-colors select-none"
+                >
+                  <div className="flex items-center gap-1">
+                    <span>Hourly Spot</span>
+                    {sortField === "hourly_price" && (sortOrder === "asc" ? "▲" : "▼")}
+                  </div>
+                </th>
+                <th
+                  onClick={() => handleSort("spot_discount_pct")}
+                  className="py-3 px-4 cursor-pointer hover:text-cyan-300 transition-colors select-none"
+                >
+                  <div className="flex items-center gap-1">
+                    <span>Spot Discount</span>
+                    {sortField === "spot_discount_pct" && (sortOrder === "asc" ? "▲" : "▼")}
+                  </div>
+                </th>
+                <th
+                  onClick={() => handleSort("severity")}
+                  className="py-3 px-4 cursor-pointer hover:text-cyan-300 transition-colors select-none"
+                >
+                  <div className="flex items-center gap-1">
+                    <span>Severity</span>
+                    {sortField === "severity" && (sortOrder === "asc" ? "▲" : "▼")}
+                  </div>
+                </th>
                 <th className="py-3 px-4 text-right">Actions</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-800/60">
               {paginatedPools.length === 0 ? (
                 <tr>
-                  <td colSpan={8} className="py-8 text-center text-slate-500 font-sans">
+                  <td colSpan={9} className="py-8 text-center text-slate-500 font-sans">
                     No instance pools match the selected filters.
                   </td>
                 </tr>
@@ -231,27 +352,50 @@ export const PoolExplorer: React.FC<PoolExplorerProps> = ({
                       </td>
                       <td className="py-3 px-4 text-slate-400">{formatPercent(pool.avg_30d_rate)}</td>
                       <td className="py-3 px-4">
-                        <div className="flex items-center gap-1.5 font-mono">
-                          <span className="text-emerald-400 font-semibold">
-                            {formatPrice(pool.hourly_price)}
-                          </span>
-                          {pool.price_hike_detected && (
-                            <span
-                              className="text-[10px] text-rose-300 font-bold bg-rose-950/60 px-1 py-0.2 rounded border border-rose-800/40"
-                              title="Recent Spot Price Hike"
-                            >
-                              ↗
+                        <div className="flex flex-col font-mono">
+                          <div className="flex items-center gap-1.5">
+                            <span className="text-emerald-400 font-semibold">
+                              {formatPrice(pool.hourly_price)}
                             </span>
-                          )}
-                          {pool.price_drop_detected && (
-                            <span
-                              className="text-[10px] text-emerald-300 font-bold bg-emerald-950/60 px-1 py-0.2 rounded border border-emerald-800/40"
-                              title="Recent Spot Price Drop"
-                            >
-                              ↘
+                            {pool.price_hike_detected && (
+                              <span
+                                className="text-[10px] text-rose-300 font-bold bg-rose-950/60 px-1 py-0.2 rounded border border-rose-800/40"
+                                title="Recent Spot Price Hike"
+                              >
+                                ↗
+                              </span>
+                            )}
+                            {pool.price_drop_detected && (
+                              <span
+                                className="text-[10px] text-emerald-300 font-bold bg-emerald-950/60 px-1 py-0.2 rounded border border-emerald-800/40"
+                                title="Recent Spot Price Drop"
+                              >
+                                ↘
+                              </span>
+                            )}
+                          </div>
+                          {pool.ondemand_hourly_price && (
+                            <span className="text-[10px] text-slate-500 line-through decoration-slate-600">
+                              OD: {formatPrice(pool.ondemand_hourly_price)}
                             </span>
                           )}
                         </div>
+                      </td>
+                      <td className="py-3 px-4">
+                        {pool.spot_discount_pct !== undefined && pool.spot_discount_pct !== null ? (
+                          <span
+                            className="inline-flex items-center text-[11px] text-emerald-400 font-bold bg-emerald-950/70 px-2 py-0.5 rounded border border-emerald-800/40 font-mono"
+                            title={
+                              pool.ondemand_hourly_price
+                                ? `${pool.spot_discount_pct.toFixed(1)}% savings vs on-demand list price (${formatPrice(pool.ondemand_hourly_price)})`
+                                : `${pool.spot_discount_pct.toFixed(1)}% discount`
+                            }
+                          >
+                            -{pool.spot_discount_pct.toFixed(1)}%
+                          </span>
+                        ) : (
+                          <span className="text-slate-600 font-mono text-[11px]">--</span>
+                        )}
                       </td>
                       <td className="py-3 px-4">
                         <span

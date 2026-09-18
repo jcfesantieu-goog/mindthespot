@@ -80,6 +80,27 @@ resource "google_bigquery_table" "price_history" {
   ])
 }
 
+resource "google_bigquery_table" "on_demand_pricing" {
+  project             = var.project_id
+  dataset_id          = google_bigquery_dataset.raw.dataset_id
+  table_id            = "on_demand_pricing"
+  description         = "GCP Compute Engine public on-demand list prices for instance pools"
+  deletion_protection = false
+
+  clustering = ["region", "machine_type"]
+
+  schema = jsonencode([
+    { name = "region", type = "STRING", mode = "REQUIRED", description = "GCP region identifier" },
+    { name = "machine_type", type = "STRING", mode = "REQUIRED", description = "GCP machine type" },
+    { name = "family", type = "STRING", mode = "REQUIRED", description = "Machine family prefix" },
+    { name = "vcpus", type = "INT64", mode = "REQUIRED", description = "Number of guest vCPUs" },
+    { name = "memory_gb", type = "FLOAT64", mode = "REQUIRED", description = "Memory in GiB" },
+    { name = "hourly_price", type = "FLOAT64", mode = "REQUIRED", description = "Public on-demand hourly price" },
+    { name = "currency", type = "STRING", mode = "REQUIRED", description = "Currency code" },
+    { name = "updated_at", type = "TIMESTAMP", mode = "REQUIRED", description = "UTC timestamp of pricing reference update" }
+  ])
+}
+
 # ==============================================================================
 # BigQuery Analytical Views Dataset & Views
 # ==============================================================================
@@ -118,7 +139,7 @@ resource "google_bigquery_table" "v_regime_shifts" {
     })
   }
 
-  depends_on = [google_bigquery_table.preemption_history, google_bigquery_table.price_history]
+  depends_on = [google_bigquery_table.preemption_history, google_bigquery_table.price_history, google_bigquery_table.on_demand_pricing]
 }
 
 # View 2: Pivot Recommendations View

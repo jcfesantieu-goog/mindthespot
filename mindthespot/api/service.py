@@ -30,6 +30,7 @@ from mindthespot.config.models import (
     WatchlistEntry,
 )
 from mindthespot.crawler.models import DailyPreemptionRate, PriceIntervalRecord
+from mindthespot.storage.pricing_seeder import compute_on_demand_price
 
 logger = logging.getLogger(__name__)
 
@@ -183,12 +184,21 @@ class SpotDataService:
                 else 0.0
             )
 
+            od_price = compute_on_demand_price(target.region, target.machine_type, target.family)
+            discount_pct = (
+                round(((od_price - hourly_price) / od_price) * 100.0, 1)
+                if od_price > 0
+                else 0.0
+            )
+
             self._synthetic_pool_cache[key] = {
                 "target": target,
                 "rates": rates,
                 "intervals": intervals,
                 "metrics": metrics,
                 "hourly_price": hourly_price,
+                "ondemand_hourly_price": od_price,
+                "spot_discount_pct": discount_pct,
                 "price_hike_detected": is_hike,
                 "price_drop_detected": has_price_drop or (price_change_pct <= -5.0),
                 "price_hike_pct": hike_pct,
@@ -222,7 +232,8 @@ class SpotDataService:
             q_shifts = f"""
             SELECT region, zone, machine_type, family, is_watchlist, custom_label,
                    recent_7d_rate, baseline_rate, rate_delta, z_score,
-                   hourly_price, currency, price_hike_detected, severity
+                   hourly_price, currency, ondemand_hourly_price, spot_discount_pct,
+                   price_hike_detected, severity
             FROM `{pid}.mindthespot_analytics.v_regime_shifts`
             """
 
@@ -353,12 +364,29 @@ class SpotDataService:
                     price_change_pct <= -5.0
                 )
 
+                od_price = (
+                    float(s.ondemand_hourly_price)
+                    if getattr(s, "ondemand_hourly_price", None) is not None
+                    else compute_on_demand_price(reg, mt, target.family)
+                )
+                discount_pct = (
+                    float(s.spot_discount_pct)
+                    if getattr(s, "spot_discount_pct", None) is not None
+                    else (
+                        round(((od_price - current_price) / od_price) * 100.0, 1)
+                        if od_price > 0
+                        else None
+                    )
+                )
+
                 new_cache[key] = {
                     "target": target,
                     "rates": rates,
                     "intervals": intervals,
                     "metrics": metrics,
                     "hourly_price": round(current_price, 6),
+                    "ondemand_hourly_price": od_price,
+                    "spot_discount_pct": discount_pct,
                     "price_hike_detected": price_hike_detected,
                     "price_drop_detected": price_drop_detected,
                     "price_hike_pct": price_change_pct if price_change_pct > 0 else 0.0,
@@ -458,6 +486,8 @@ class SpotDataService:
                     avg_7d_rate=metrics["recent_7d_rate"],
                     avg_30d_rate=round(avg_30d, 4),
                     hourly_price=data["hourly_price"],
+                    ondemand_hourly_price=data.get("ondemand_hourly_price"),
+                    spot_discount_pct=data.get("spot_discount_pct"),
                     severity=metrics["severity"],
                     price_hike_detected=bool(data.get("price_hike_detected", False)),
                     price_drop_detected=bool(data.get("price_drop_detected", False)),
@@ -503,6 +533,8 @@ class SpotDataService:
                     "severity": m["severity"],
                     "recent_7d_rate": m["recent_7d_rate"],
                     "hourly_price": data["hourly_price"],
+                    "ondemand_hourly_price": data.get("ondemand_hourly_price"),
+                    "spot_discount_pct": data.get("spot_discount_pct"),
                 }
             )
 
@@ -541,6 +573,8 @@ class SpotDataService:
                     "severity": sev,
                     "recent_7d_rate": metrics["recent_7d_rate"],
                     "hourly_price": data["hourly_price"],
+                    "ondemand_hourly_price": data.get("ondemand_hourly_price"),
+                    "spot_discount_pct": data.get("spot_discount_pct"),
                 },
                 all_pools=pool_dicts,
             )
@@ -560,6 +594,8 @@ class SpotDataService:
                     rate_delta=metrics["rate_delta"],
                     z_score=metrics["z_score"],
                     hourly_price=data["hourly_price"],
+                    ondemand_hourly_price=data.get("ondemand_hourly_price"),
+                    spot_discount_pct=data.get("spot_discount_pct"),
                     severity=sev,
                     price_hike_detected=is_hike,
                     price_drop_detected=is_drop,
@@ -608,6 +644,8 @@ class SpotDataService:
             z_score=metrics["z_score"],
             severity=metrics["severity"],
             current_hourly_price=data["hourly_price"],
+            ondemand_hourly_price=data.get("ondemand_hourly_price"),
+            spot_discount_pct=data.get("spot_discount_pct"),
         )
 
     def get_pivot_recommendations(
@@ -634,6 +672,8 @@ class SpotDataService:
                 "severity": d["metrics"]["severity"],
                 "recent_7d_rate": d["metrics"]["recent_7d_rate"],
                 "hourly_price": d["hourly_price"],
+                "ondemand_hourly_price": d.get("ondemand_hourly_price"),
+                "spot_discount_pct": d.get("spot_discount_pct"),
             }
             for d in self._synthetic_pool_cache.values()
         ]
@@ -646,6 +686,8 @@ class SpotDataService:
             "severity": metrics["severity"],
             "recent_7d_rate": metrics["recent_7d_rate"],
             "hourly_price": data["hourly_price"],
+            "ondemand_hourly_price": data.get("ondemand_hourly_price"),
+            "spot_discount_pct": data.get("spot_discount_pct"),
         }
 
         candidates = find_pivot_candidates_for_pool(origin_pool, pool_dicts)

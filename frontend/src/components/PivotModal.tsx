@@ -217,7 +217,21 @@ gcloud compute instances create spot-worker-${pivot.pivot_family} \\
                         <span className="text-emerald-400 font-semibold">
                           Rate: {formatPercent(pivot.pivot_7d_rate)}
                         </span>
-                        <span>{formatPrice(pivot.pivot_hourly_price)}</span>
+                        <div className="flex items-center gap-1.5">
+                          <span>{formatPrice(pivot.pivot_hourly_price)}</span>
+                          {pivot.pivot_discount_pct !== undefined && pivot.pivot_discount_pct !== null && (
+                            <span
+                              className="text-[10px] text-emerald-400 font-bold bg-emerald-950/70 px-1.5 py-0.5 rounded border border-emerald-800/40"
+                              title={
+                                pivot.pivot_ondemand_price
+                                  ? `${pivot.pivot_discount_pct.toFixed(1)}% savings vs on-demand (${formatPrice(pivot.pivot_ondemand_price)})`
+                                  : `${pivot.pivot_discount_pct.toFixed(1)}% discount`
+                              }
+                            >
+                              -{pivot.pivot_discount_pct.toFixed(1)}%
+                            </span>
+                          )}
+                        </div>
                       </div>
                     </div>
                   </div>

@@ -50,7 +50,8 @@ flowchart TD
     subgraph Data_Storage_and_Analytics ["2. BigQuery Data Lakehouse"]
         BQ_Raw_Preempt["mindthespot_raw.preemption_history (Partitioned by snapshot_date)"]
         BQ_Raw_Price["mindthespot_raw.price_history (Partitioned by snapshot_date)"]
-        BQ_View_Shifts["mindthespot_analytics.v_regime_shifts (7d vs 30d Z-score & Price Deltas)"]
+        BQ_Raw_ODPricing["mindthespot_raw.on_demand_pricing (Public On-Demand Rates Matrix)"]
+        BQ_View_Shifts["mindthespot_analytics.v_regime_shifts (7d vs 30d Z-score, Spot Price & Discount %)"]
         BQ_View_Pivots["mindthespot_analytics.v_pivot_recommendations (Fallback Sibling Zones & Families)"]
     end
 
@@ -239,6 +240,9 @@ npm run build         # Builds production bundle to frontend/dist
 mindthespot crawl --dry-run
 mindthespot crawl --output=bigquery --project=my-gcp-project --dataset=mindthespot
 
+# Seed or refresh public Compute Engine on-demand pricing in BigQuery
+mindthespot seed-pricing --project=my-gcp-project --dataset=mindthespot_raw
+
 # Run standalone FastAPI backend in dev mode
 mindthespot api --port 8000 --reload
 
@@ -268,9 +272,10 @@ mindthespot/
 ├── sql/
 │   ├── ddl/
 │   │   ├── 01_raw_preemption_history.sql # BigQuery raw table for daily preemption rates
-│   │   └── 02_raw_price_history.sql      # BigQuery raw table for interval pricing
+│   │   ├── 02_raw_price_history.sql      # BigQuery raw table for interval pricing
+│   │   └── 03_raw_on_demand_pricing.sql  # BigQuery table for public on-demand list pricing
 │   └── views/
-│       ├── 01_v_regime_shifts.sql        # View calculating 7d vs 30d baseline & Z-scores
+│       ├── 01_v_regime_shifts.sql        # View calculating 7d vs 30d baseline, Spot discount & Z-scores
 │       └── 02_v_pivot_recommendations.sql# View joining anomaly pools with stable alternatives
 ├── mindthespot/
 │   ├── __init__.py
@@ -409,6 +414,17 @@ mindthespot/
    - `hourly_price`: FLOAT64 (`nanos / 1e9`)
    *Clustered by:* `region, machine_type`
 
+3. **`mindthespot_raw.on_demand_pricing`**:
+   - `region`: STRING
+   - `machine_type`: STRING
+   - `family`: STRING
+   - `vcpus`: INT64
+   - `memory_gb`: FLOAT64
+   - `hourly_price`: FLOAT64 (Standard public on-demand list rate in USD)
+   - `currency`: STRING ("USD")
+   - `updated_at`: TIMESTAMP
+   *Clustered by:* `region, machine_type, family`
+
 ### 6.3 FastAPI REST API Contracts
 * **`GET /api/v1/anomalies`**
   Returns active regime shifts sorted by severity score.
@@ -425,6 +441,8 @@ mindthespot/
       "baseline_30d_rate": 0.04,
       "delta": 0.34,
       "price_hourly": 0.1824,
+      "ondemand_hourly_price": 0.7296,
+      "spot_discount_pct": 75.0,
       "price_status": "STABLE",
       "is_watchlist": true
     }
@@ -456,6 +474,24 @@ mindthespot/
 * **Compute-Optimized (Intel):** `c3-standard-*` $\leftrightarrow$ `c2-standard-*`
 * **Arm / Axion:** `c4a-standard-*` (interchangeable for multi-arch containerized workloads)
 * **General Purpose:** `n2d-standard-*` $\leftrightarrow$ `n2-standard-*` $\leftrightarrow$ `e2-standard-*`
+
+### 6.6 Public On-Demand Pricing Reference & Spot Discount
+To provide actionable FinOps visibility and transparent savings context against public list pricing, MindTheSpot stores regional on-demand rates in BigQuery and computes real-time spot discount percentages.
+
+* **On-Demand Price Formula:**
+  $$P_{\text{on\_demand}} = \text{vCPUs} \times \text{rate}_{\text{family}} \times \text{multiplier}_{\text{region}}$$
+  * Base vCPU rates span 11 families (`c4a`: \$0.04508, `c4d`: \$0.04146, `c3d`: \$0.0425, `c3`: \$0.0435, `c2`: \$0.0487, `n4`: \$0.0420, `n2`: \$0.0445, `n2d`: \$0.0388, `t2d`: \$0.0385, `t2a`: \$0.0385, `e2`: \$0.0335).
+  * Regional multipliers reflect GCP geographic price variance (e.g., `us-central1`: 1.00, `europe-west4`: 1.08, `europe-west1`: 1.10, `africa-south1`: 1.25).
+* **Spot Discount Formula:**
+  $$\text{spot\_discount\_pct} = \text{ROUND}\left(\frac{P_{\text{on\_demand}} - P_{\text{spot}}}{P_{\text{on\_demand}}} \times 100.0, 1\right)$$
+* **Analytical View Integration:**
+  * `v_regime_shifts` executes a `LEFT JOIN mindthespot_raw.on_demand_pricing od ON s.region = od.region AND s.machine_type = od.machine_type`, exposing `ondemand_hourly_price` and `spot_discount_pct`.
+  * `v_pivot_recommendations` projects `pivot_ondemand_price` and `pivot_discount_pct` across all sibling zones and alternative family candidates.
+* **Frontend UI Surfaces:**
+  * **Main Tile (`AnomalyCard`):** Displays current spot hourly price alongside crossed-out public on-demand list price and a green savings pill badge (e.g., `-[68.4]%`).
+  * **Inspector Modal & Price Timeline (`InspectorModal`, `PriceTimeline`):** Spot Price metric card highlights discount and on-demand list rate; the time-series price chart renders a dashed `<ReferenceLine>` for the on-demand ceiling and auto-scales chart domain.
+  * **Pivot Recommendations Modal (`PivotModal`):** Recommended sibling zones and fallback family cards showcase target spot discounts.
+  * **Pool Explorer Table (`PoolExplorer`):** Dedicated sortable "Spot Discount" column with green percentage badges and secondary "OD: \$X.XX" sub-labels under Hourly Spot rates.
 
 ---
 

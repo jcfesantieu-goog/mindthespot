@@ -27,3 +27,9 @@ export function formatPrice(val: number): string {
   return `$${val.toFixed(4)}/hr`;
 }
 
+export function formatDiscount(val?: number | null): string {
+  if (val === undefined || val === null) return "--";
+  return `${val.toFixed(1)}% off`;
+}
+
+

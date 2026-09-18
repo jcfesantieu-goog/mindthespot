@@ -120,6 +120,11 @@ SELECT
   ) AS z_score,
   lp.hourly_price,
   lp.currency,
+  od.hourly_price AS ondemand_hourly_price,
+  ROUND(
+    ((od.hourly_price - lp.hourly_price) / NULLIF(od.hourly_price, 0)) * 100.0,
+    1
+  ) AS spot_discount_pct,
   ROUND(
     ((lp.hourly_price - pp.prev_hourly_price) / NULLIF(pp.prev_hourly_price, 0)) * 100.0,
     2
@@ -147,4 +152,5 @@ SELECT
 FROM pool_windows w
 LEFT JOIN latest_prices lp ON w.region = lp.region AND w.machine_type = lp.machine_type
 LEFT JOIN previous_prices pp ON w.region = pp.region AND w.machine_type = pp.machine_type
+LEFT JOIN `${project}.${dataset_raw}.on_demand_pricing` od ON w.region = od.region AND w.machine_type = od.machine_type
 

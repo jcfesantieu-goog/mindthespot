@@ -157,12 +157,29 @@ export const InspectorModal: React.FC<InspectorModalProps> = ({
 
 
               <div className="bg-slate-950 p-3 rounded-xl border border-slate-800">
-                <div className="text-slate-400 mb-1">Current Spot Price</div>
+                <div className="text-slate-400 mb-1 flex items-center justify-between">
+                  <span>Current Spot Price</span>
+                  {history.spot_discount_pct !== undefined && history.spot_discount_pct !== null && (
+                    <span className="text-[10px] text-emerald-400 font-bold bg-emerald-950/70 px-1.5 py-0.5 rounded border border-emerald-800/40">
+                      -{history.spot_discount_pct.toFixed(1)}%
+                    </span>
+                  )}
+                </div>
                 <div className="text-lg font-bold text-emerald-400 flex items-center gap-1">
                   <DollarSign className="w-4 h-4" />
                   {formatPrice(history.current_hourly_price)}
                 </div>
-                <div className="text-[10px] text-slate-500">Billed per core/hour</div>
+                <div className="text-[10px] text-slate-500 flex items-center justify-between mt-0.5">
+                  <span>Billed per hour</span>
+                  {history.ondemand_hourly_price !== undefined && history.ondemand_hourly_price !== null && (
+                    <span className="text-slate-400">
+                      On-Demand:{" "}
+                      <span className="line-through decoration-slate-600">
+                        {formatPrice(history.ondemand_hourly_price)}
+                      </span>
+                    </span>
+                  )}
+                </div>
               </div>
             </div>
 
@@ -170,7 +187,11 @@ export const InspectorModal: React.FC<InspectorModalProps> = ({
             <PreemptionChart rates={history.rates} />
 
             {/* Price Timeline Chart */}
-            <PriceTimeline intervals={history.intervals} />
+            <PriceTimeline
+              intervals={history.intervals}
+              ondemandPrice={history.ondemand_hourly_price}
+              discountPct={history.spot_discount_pct}
+            />
           </div>
         ) : null}
 

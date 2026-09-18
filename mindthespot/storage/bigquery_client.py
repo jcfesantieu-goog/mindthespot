@@ -6,7 +6,12 @@ from typing import Any
 from google.cloud import bigquery
 from google.cloud.exceptions import NotFound
 
+from mindthespot.storage.pricing_seeder import (
+    ensure_on_demand_pricing_seeded,
+    seed_on_demand_pricing_table,
+)
 from mindthespot.storage.schemas import (
+    ON_DEMAND_PRICING_TABLE_SCHEMA,
     PREEMPTION_TABLE_SCHEMA,
     PRICE_TABLE_SCHEMA,
 )
@@ -72,6 +77,23 @@ class BigQueryStorageClient:
             table.clustering_fields = ["region", "machine_type"]
             self.client.create_table(table, exists_ok=True)
             logger.info("Created BigQuery table %s", price_table_id)
+
+        # 3. Ensure On-Demand Pricing Reference Table
+        od_table_id = f"{self.project}.{self.dataset}.on_demand_pricing"
+        try:
+            self.client.get_table(od_table_id)
+        except NotFound:
+            table = bigquery.Table(od_table_id, schema=ON_DEMAND_PRICING_TABLE_SCHEMA)
+            table.clustering_fields = ["region", "machine_type"]
+            self.client.create_table(table, exists_ok=True)
+            logger.info("Created BigQuery table %s", od_table_id)
+
+        # 4. Seed on-demand pricing reference if empty
+        ensure_on_demand_pricing_seeded(self.client, self.project, self.dataset)
+
+    def seed_on_demand_pricing(self) -> int:
+        """Seed or overwrite the on_demand_pricing reference table."""
+        return seed_on_demand_pricing_table(self.client, self.project, self.dataset)
 
     def load_rows_into_table(
         self,

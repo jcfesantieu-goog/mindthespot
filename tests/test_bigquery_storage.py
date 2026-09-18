@@ -91,7 +91,7 @@ def test_bigquery_storage_client_ensure_tables():
     storage.ensure_dataset_and_tables()
 
     assert mock_client.create_dataset.call_count == 1
-    assert mock_client.create_table.call_count == 2
+    assert mock_client.create_table.call_count == 3
 
 
 def test_bigquery_storage_client_insert_rows():
@@ -137,3 +137,21 @@ def test_bigquery_storage_client_purge_snapshot():
 
     second_call_args = mock_client.query.call_args_list[1][0][0]
     assert "DELETE FROM `test-proj.test_raw.price_history`" in second_call_args
+
+
+def test_bigquery_storage_client_seed_pricing():
+    mock_client = MagicMock()
+    mock_job = MagicMock()
+    mock_client.load_table_from_json.return_value = mock_job
+
+    storage = BigQueryStorageClient(
+        project="test-proj",
+        dataset="test_raw",
+        client=mock_client,
+    )
+
+    count = storage.seed_on_demand_pricing()
+    assert count > 0
+    mock_client.load_table_from_json.assert_called_once()
+    mock_job.result.assert_called_once()
+

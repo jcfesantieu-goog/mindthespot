@@ -49,6 +49,8 @@ class PivotCandidate(BaseModel):
     cost_savings_pct: float = Field(
         default=0.0, description="Cost savings percentage relative to origin pool"
     )
+    pivot_ondemand_price: float | None = None
+    pivot_discount_pct: float | None = None
     recommendation_reason: str
 
 
@@ -82,6 +84,8 @@ def find_pivot_candidates_for_pool(
         p_cores = extract_core_size(p_mt)
         p_7d = pool.get("recent_7d_rate", 0.0)
         p_price = pool.get("hourly_price", 0.0)
+        p_od = pool.get("ondemand_hourly_price")
+        p_disc = pool.get("spot_discount_pct")
         savings = round(origin_7d - p_7d, 4)
         cost_diff = round(origin_price - p_price, 4)
         savings_pct = (
@@ -110,6 +114,8 @@ def find_pivot_candidates_for_pool(
                     pivot_family=p_family,
                     pivot_7d_rate=p_7d,
                     pivot_hourly_price=p_price,
+                    pivot_ondemand_price=p_od,
+                    pivot_discount_pct=p_disc,
                     preemption_savings=savings,
                     cost_difference=cost_diff,
                     cost_savings_pct=savings_pct,
@@ -134,6 +140,8 @@ def find_pivot_candidates_for_pool(
                     pivot_family=p_family,
                     pivot_7d_rate=p_7d,
                     pivot_hourly_price=p_price,
+                    pivot_ondemand_price=p_od,
+                    pivot_discount_pct=p_disc,
                     preemption_savings=savings,
                     cost_difference=cost_diff,
                     cost_savings_pct=savings_pct,
@@ -163,6 +171,8 @@ def find_pivot_candidates_for_pool(
                     pivot_family=p_family,
                     pivot_7d_rate=p_7d,
                     pivot_hourly_price=p_price,
+                    pivot_ondemand_price=p_od,
+                    pivot_discount_pct=p_disc,
                     preemption_savings=savings,
                     cost_difference=cost_diff,
                     cost_savings_pct=savings_pct,

@@ -139,6 +139,11 @@ SELECT
   z.z_score,
   lp.hourly_price,
   lp.currency,
+  od.hourly_price AS ondemand_hourly_price,
+  ROUND(
+    ((od.hourly_price - lp.hourly_price) / NULLIF(od.hourly_price, 0)) * 100.0,
+    1
+  ) AS spot_discount_pct,
   ROUND(
     ((lp.hourly_price - pp.prev_hourly_price) / NULLIF(pp.prev_hourly_price, 0)) * 100.0,
     2
@@ -161,5 +166,6 @@ SELECT
   END AS severity
 FROM z_scored z
 LEFT JOIN latest_prices lp ON z.region = lp.region AND z.machine_type = lp.machine_type
-LEFT JOIN previous_prices pp ON z.region = pp.region AND z.machine_type = pp.machine_type;
+LEFT JOIN previous_prices pp ON z.region = pp.region AND z.machine_type = pp.machine_type
+LEFT JOIN `{project}.{dataset}.on_demand_pricing` od ON z.region = od.region AND z.machine_type = od.machine_type;
 

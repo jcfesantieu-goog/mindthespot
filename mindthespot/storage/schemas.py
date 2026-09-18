@@ -34,6 +34,17 @@ PRICE_TABLE_SCHEMA = [
     bigquery.SchemaField("currency", "STRING", mode="REQUIRED"),
 ]
 
+ON_DEMAND_PRICING_TABLE_SCHEMA = [
+    bigquery.SchemaField("region", "STRING", mode="REQUIRED", description="GCP region identifier"),
+    bigquery.SchemaField("machine_type", "STRING", mode="REQUIRED", description="GCP machine type"),
+    bigquery.SchemaField("family", "STRING", mode="REQUIRED", description="Machine family prefix"),
+    bigquery.SchemaField("vcpus", "INTEGER", mode="REQUIRED", description="Number of guest vCPUs"),
+    bigquery.SchemaField("memory_gb", "FLOAT64", mode="REQUIRED", description="Memory in GiB"),
+    bigquery.SchemaField("hourly_price", "FLOAT64", mode="REQUIRED", description="Public on-demand hourly price"),
+    bigquery.SchemaField("currency", "STRING", mode="REQUIRED", description="Currency code"),
+    bigquery.SchemaField("updated_at", "TIMESTAMP", mode="REQUIRED", description="UTC timestamp of pricing reference update"),
+]
+
 
 def transform_preemption_records_to_rows(
     records: list[PreemptionSnapshotRecord],

@@ -124,14 +124,34 @@ export const AnomalyCard: React.FC<AnomalyCardProps> = ({
 
       </div>
 
-      {/* Price & Price Hike / Drop indicator */}
+      {/* Price & Spot Discount / Price Hike / Drop indicator */}
       <div className="flex items-center justify-between text-xs py-2 px-3 rounded-lg bg-slate-900/40 border border-slate-800/60 mb-4 font-mono">
         <div className="flex items-center gap-1.5 text-slate-300">
           <DollarSign className="w-3.5 h-3.5 text-slate-400" />
-          <span>Spot Price:</span>
+          <span>Spot:</span>
           <span className="font-bold text-slate-100">{formatPrice(anomaly.hourly_price)}</span>
+          {anomaly.ondemand_hourly_price !== undefined && anomaly.ondemand_hourly_price !== null && (
+            <span
+              className="text-[11px] text-slate-500 line-through decoration-slate-600 ml-1"
+              title={`Public On-Demand Price: ${formatPrice(anomaly.ondemand_hourly_price)}`}
+            >
+              {formatPrice(anomaly.ondemand_hourly_price)}
+            </span>
+          )}
         </div>
-        <div className="flex items-center gap-1">
+        <div className="flex items-center gap-1.5">
+          {anomaly.spot_discount_pct !== undefined && anomaly.spot_discount_pct !== null && (
+            <span
+              className="text-[11px] text-emerald-400 font-bold bg-emerald-950/70 px-2 py-0.5 rounded border border-emerald-800/50"
+              title={
+                anomaly.ondemand_hourly_price
+                  ? `${anomaly.spot_discount_pct.toFixed(1)}% savings compared to public on-demand (${formatPrice(anomaly.ondemand_hourly_price)})`
+                  : `${anomaly.spot_discount_pct.toFixed(1)}% discount`
+              }
+            >
+              -{anomaly.spot_discount_pct.toFixed(1)}%
+            </span>
+          )}
           {anomaly.price_hike_detected && (
             <span className="flex items-center gap-1 text-[11px] text-rose-300 font-semibold bg-rose-950/60 px-2 py-0.5 rounded border border-rose-800/40">
               <ArrowUpRight className="w-3 h-3 text-rose-400" />

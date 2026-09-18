@@ -30,6 +30,8 @@ class AnomalyResponse(BaseModel):
     rate_delta: float
     z_score: float
     hourly_price: float
+    ondemand_hourly_price: float | None = None
+    spot_discount_pct: float | None = None
     severity: str  # CRITICAL, ELEVATED, STABLE
     price_hike_detected: bool = False
     price_drop_detected: bool = False
@@ -52,6 +54,8 @@ class PoolSummaryResponse(BaseModel):
     avg_7d_rate: float
     avg_30d_rate: float
     hourly_price: float
+    ondemand_hourly_price: float | None = None
+    spot_discount_pct: float | None = None
     severity: str
     price_hike_detected: bool = False
     price_drop_detected: bool = False
@@ -77,6 +81,8 @@ class PoolHistoryResponse(BaseModel):
     z_score: float
     severity: str
     current_hourly_price: float
+    ondemand_hourly_price: float | None = None
+    spot_discount_pct: float | None = None
 
 
 class PivotRecommendationResponse(BaseModel):
