@@ -33,43 +33,43 @@ MindTheSpot is deployed in Google Cloud Argolis project `jcf-mindthespot` (regio
 
 ```mermaid
 flowchart TD
-    subgraph Edge ["1. Zero-Trust Edge (Cloud IAP)"]
+    subgraph Edge ["1. Zero-Trust Edge - Cloud IAP"]
         User["FinOps / DevOps Engineer"]
-        LB["Global External HTTPS Load Balancer\n(Static IP: 8.232.252.55)\nGoogle-Managed SSL: spot-8-232-252-55.sslip.io"]
-        IAP{"Cloud Identity-Aware Proxy\n(OAuth 2.0 Auth & IAM Check)"}
-        NEG["Serverless NEG\n(europe-west4)"]
+        LB["Global External HTTPS Load Balancer<br/>Static IP: 8.232.252.55<br/>Google-Managed SSL: spot-8-232-252-55.sslip.io"]
+        IAP{"Cloud Identity-Aware Proxy<br/>OAuth 2.0 Auth and IAM Check"}
+        NEG["Serverless NEG<br/>europe-west4"]
     end
 
-    subgraph Serving ["2. Private Serving Layer (Cloud Run)"]
-        RunApp["Cloud Run Service: mindthespot-app\n(Ingress: Internal & Cloud Load Balancer)"]
-        FastAPI["FastAPI Backend\n(/api/v1/* + In-Memory RAM Dictionaries)"]
-        ReactSPA["React 18 Dashboard SPA\n(Vite + Tailwind CSS + shadcn/ui + Recharts)"]
+    subgraph Serving ["2. Private Serving Layer - Cloud Run"]
+        RunApp["Cloud Run Service: mindthespot-app<br/>Ingress: Internal and Cloud Load Balancer"]
+        FastAPI["FastAPI Backend<br/>api/v1 REST APIs and In-Memory RAM Dictionaries"]
+        ReactSPA["React 18 Dashboard SPA<br/>Vite + Tailwind CSS + shadcn/ui + Recharts"]
     end
 
-    subgraph Ingestion ["3. Ingestion & Transformation Lakehouse (BigQuery)"]
-        Scheduler["Cloud Scheduler\n(Weekly: Mon 01:00 UTC)"]
-        RunJob["Cloud Run Job: mindthespot-crawler\n(Interval Expansion + Idempotent Purge)"]
-        GCP_API["Compute Engine API\n(advice.capacityHistory)"]
-        BQ_Raw["BigQuery Raw Layer: mindthespot_raw\n(preemption_history, price_history, on_demand_pricing)"]
-        BQ_Views["BigQuery Analytics Layer: mindthespot_analytics\n(v_regime_shifts, v_pivot_recommendations)"]
+    subgraph Ingestion ["3. Ingestion and Transformation Lakehouse - BigQuery"]
+        Scheduler["Cloud Scheduler<br/>Weekly: Mon 01:00 UTC"]
+        RunJob["Cloud Run Job: mindthespot-crawler<br/>Interval Expansion and Idempotent Purge"]
+        GCP_API["Compute Engine API<br/>advice.capacityHistory"]
+        BQ_Raw["BigQuery Raw Layer: mindthespot_raw<br/>preemption_history, price_history, on_demand_pricing"]
+        BQ_Views["BigQuery Analytics Layer: mindthespot_analytics<br/>v_regime_shifts, v_pivot_recommendations"]
     end
 
-    User -->|HTTPS :443| LB
+    User -->|HTTPS Port 443| LB
     LB --> IAP
-    IAP -->|✅ Injects X-Goog-Authenticated-User-Email| NEG
+    IAP -->|Injects X-Goog-Authenticated-User-Email| NEG
     NEG --> RunApp
     RunApp --> FastAPI
-    FastAPI -->|Serves Static Bundle on /*| ReactSPA
-    FastAPI -->|Sub-5ms Endpoints on /api/v1/*| ReactSPA
+    FastAPI -->|Serves Static Bundle on root| ReactSPA
+    FastAPI -->|Sub-5ms Endpoints on api/v1| ReactSPA
 
-    BQ_Views -.->|Startup Pre-Warm & Refresh (ADR 002)| FastAPI
-    BQ_Raw -.->|Startup Pre-Warm & Refresh (ADR 002)| FastAPI
+    BQ_Views -.->|Startup Pre-Warm and Refresh - ADR 002| FastAPI
+    BQ_Raw -.->|Startup Pre-Warm and Refresh - ADR 002| FastAPI
 
     Scheduler -->|Triggers Execution| RunJob
-    RunJob -->|Rate-Limited Fetch (15 req/s)| GCP_API
+    RunJob -->|Rate-Limited Fetch at 15 req/s| GCP_API
     RunJob -->|Idempotent Regional Stream| BQ_Raw
     BQ_Raw --> BQ_Views
-    RunJob -.->|POST /api/v1/cache/refresh| FastAPI
+    RunJob -.->|POST api/v1/cache/refresh| FastAPI
 ```
 
 ---

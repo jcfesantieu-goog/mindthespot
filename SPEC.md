@@ -83,15 +83,15 @@ flowchart TD
 
     Users -->|HTTPS Request| HTTPS_LB
     HTTPS_LB --> IAP_Proxy
-    IAP_Proxy -->|✅ Authenticated + Injects X-Goog-Authenticated-User-Email| Serverless_NEG
+    IAP_Proxy -->|Authenticated + Injects X-Goog-Authenticated-User-Email| Serverless_NEG
     Serverless_NEG --> RunService
     RunService --> FastAPI
 
-    BQ_View_Shifts -.->|Startup Pre-Warm + Background Sync (ADR 002)| FastAPI
-    BQ_Raw_Price -.->|Startup Pre-Warm + Background Sync (ADR 002)| FastAPI
-    RunJob -.->|POST /api/v1/cache/refresh (Post-Crawl)| FastAPI
-    FastAPI -->|Serves Static Bundle on /*| ReactUI
-    FastAPI -->|Serves REST Endpoints on /api/v1/* (< 5ms)| ReactUI
+    BQ_View_Shifts -.->|Startup Pre-Warm + Background Sync - ADR 002| FastAPI
+    BQ_Raw_Price -.->|Startup Pre-Warm + Background Sync - ADR 002| FastAPI
+    RunJob -.->|POST api/v1/cache/refresh - Post-Crawl| FastAPI
+    FastAPI -->|Serves Static Bundle on root| ReactUI
+    FastAPI -->|Serves REST Endpoints on api/v1| ReactUI
 ```
 
 
