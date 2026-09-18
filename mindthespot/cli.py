@@ -184,9 +184,9 @@ def list_anomalies_cli(
     ] = False,
 ) -> None:
     """Query and display active regime shift warning anomalies."""
-    from mindthespot.api.service import SpotDataService
+    from mindthespot.api.routes import get_spot_service
 
-    service = SpotDataService()
+    service = get_spot_service()
     anomalies = service.get_anomalies(
         severity=severity,
         region=region,
@@ -226,9 +226,9 @@ def list_pivots_cli(
     machine_type: Annotated[str, typer.Argument(help="Target machine type, e.g. c4d-standard-16")],
 ) -> None:
     """Find and rank sibling zone and equivalent family pivot recommendations."""
-    from mindthespot.api.service import SpotDataService
+    from mindthespot.api.routes import get_spot_service
 
-    service = SpotDataService()
+    service = get_spot_service()
     res = service.get_pivot_recommendations(region, zone, machine_type)
 
     if not res or not res.pivots:

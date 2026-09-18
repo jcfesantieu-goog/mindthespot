@@ -122,7 +122,7 @@ Run all three quality gates before committing code or pushing:
 # Gate 1: Python Linting & Formatting
 ./.venv/bin/ruff check .
 
-# Gate 2: Automated Test Suite (52 tests)
+# Gate 2: Automated Test Suite (57 tests, 92% coverage in <6s)
 ./.venv/bin/pytest tests/
 
 # Gate 3: Frontend TypeScript & Production Build

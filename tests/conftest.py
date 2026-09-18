@@ -62,3 +62,25 @@ def mock_price_api_response():
             }
         ]
     }
+
+
+@pytest.fixture
+def mini_catalog():
+    """Lightweight catalog for fast scoped tests without expanding 6,000+ pools."""
+    from mindthespot.config.models import CatalogConfig, MachineFamilyConfig, RegionConfig
+
+    return CatalogConfig(
+        regions=[RegionConfig(region="europe-west4", zones=["europe-west4-a", "europe-west4-b"])],
+        families=[
+            MachineFamilyConfig(
+                family="c4a",
+                machine_types=["c4a-standard-4"],
+                equivalent_families=["c4d"],
+            ),
+            MachineFamilyConfig(
+                family="c4d",
+                machine_types=["c4d-standard-4"],
+                equivalent_families=["c4a"],
+            ),
+        ],
+    )

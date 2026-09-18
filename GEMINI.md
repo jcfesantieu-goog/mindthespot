@@ -79,6 +79,9 @@ mindthespot/
    - Cloud Run ingress is restricted to `INGRESS_TRAFFIC_INTERNAL_LOAD_BALANCER`.
    - Grant `roles/run.invoker` to `serviceAccount:service-${PROJECT_NUMBER}@gcp-sa-iap.iam.gserviceaccount.com`.
    - Cloud Run `custom_audiences` must include both the public `sslip.io` domain and `iap_client_id`.
+7. **Hermetic Unit Tests & Sub-6s Test Loop**:
+   - Unit tests must remain fully isolated with zero outbound network calls to GCP APIs. Always mock HTTP client transports via `httpx.MockTransport` in crawler and CLI tests to prevent connection timeouts and backoff retry delays.
+   - Use `mini_catalog` and `initialize_synthetic=False` in cache/service unit tests to prevent redundant synthetic generation across 6,240 pools, maintaining suite execution $< 6\text{s}$ at $> 92\%$ coverage.
 
 ---
 

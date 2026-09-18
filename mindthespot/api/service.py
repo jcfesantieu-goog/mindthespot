@@ -44,6 +44,7 @@ class SpotDataService:
         watchlist: WatchlistConfig | None = None,
         pre_warm: bool = False,
         project_id: str | None = None,
+        initialize_synthetic: bool = True,
     ) -> None:
         self.catalog = catalog or load_catalog()
         self.watchlist = watchlist or load_watchlist()
@@ -57,7 +58,8 @@ class SpotDataService:
         self._lock = threading.Lock()
 
         # Seed initial synthetic dataset by default (safe instant startup)
-        self._initialize_synthetic_dataset()
+        if initialize_synthetic:
+            self._initialize_synthetic_dataset()
 
         if pre_warm:
             self.warm_cache_from_bigquery(project_id)

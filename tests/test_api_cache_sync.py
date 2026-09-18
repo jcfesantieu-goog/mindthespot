@@ -6,14 +6,13 @@ from unittest.mock import MagicMock, patch
 import pytest
 from fastapi.testclient import TestClient
 
-from mindthespot.api.app import create_app
+from mindthespot.api.app import app
 from mindthespot.api.service import SpotDataService
 
 
 @pytest.fixture
 def test_client():
-    """Create test client with fresh SpotDataService instance."""
-    app = create_app()
+    """Create test client reusing singleton application instance."""
     with TestClient(app) as client:
         yield client
 
@@ -41,7 +40,7 @@ def test_cache_refresh_trigger(test_client):
 
 def test_service_warm_cache_mocked_bigquery():
     """Verify warm_cache_from_bigquery populates cache from mocked BigQuery rows."""
-    service = SpotDataService()
+    service = SpotDataService(initialize_synthetic=False)
 
     # Mock BigQuery Row items
     mock_shift = MagicMock()
@@ -116,9 +115,9 @@ def test_service_warm_cache_mocked_bigquery():
         assert isinstance(anomalies, list)
 
 
-def test_service_warm_cache_failure_fallback():
+def test_service_warm_cache_failure_fallback(mini_catalog):
     """Verify service gracefully retains cache when BigQuery query fails."""
-    service = SpotDataService()
+    service = SpotDataService(catalog=mini_catalog)
     initial_count = len(service._pool_cache)
     assert initial_count > 0
 

@@ -1,6 +1,7 @@
 """Tests for MindTheSpot rate limiter, API client, and crawler extractor."""
 
 import time
+from unittest.mock import MagicMock, patch
 
 import httpx
 import pytest
@@ -337,3 +338,47 @@ async def test_fetch_preemption_history_expands_compressed_intervals():
             0.10,
             0.10,
         ]
+
+
+@pytest.mark.asyncio
+async def test_client_retries_on_network_error(mock_preemption_api_response):
+    attempts = 0
+
+    async def mock_network_error_handler(request: httpx.Request) -> httpx.Response:
+        nonlocal attempts
+        attempts += 1
+        if attempts == 1:
+            raise httpx.ConnectError("Network unreachable", request=request)
+        return httpx.Response(200, json=mock_preemption_api_response)
+
+    transport = httpx.MockTransport(mock_network_error_handler)
+    async with httpx.AsyncClient(transport=transport) as http_client:
+        client = GCPCapacityHistoryClient(
+            token_provider="fake-token",
+            http_client=http_client,
+            max_retries=2,
+            base_backoff_sec=0.01,
+        )
+
+        rates = await client.fetch_preemption_history(
+            project="test-proj",
+            region="europe-west4",
+            zone="europe-west4-a",
+            machine_type="c4d-standard-8",
+        )
+        assert attempts == 2
+        assert len(rates) == 7
+
+
+@pytest.mark.asyncio
+async def test_client_adc_auth_token_resolution():
+    with patch("google.auth.default") as mock_auth_default:
+        mock_creds = MagicMock()
+        mock_creds.token = "adc-mocked-bearer-token"
+        mock_creds.expiry = None
+        mock_auth_default.return_value = (mock_creds, "mock-project")
+
+        client = GCPCapacityHistoryClient()
+        headers = await client._get_auth_headers()
+        assert headers == {"Authorization": "Bearer adc-mocked-bearer-token"}
+

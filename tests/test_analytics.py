@@ -183,3 +183,26 @@ def test_find_pivot_candidates_for_congested_pool():
     assert same_zone_pivot.pivot_family == "c3d"
     assert same_zone_pivot.preemption_savings == 0.38
     assert same_zone_pivot.cost_difference == 0.03
+
+
+def test_statistical_edge_cases():
+    from mindthespot.analytics.statistical import (
+        calculate_mean,
+        calculate_sample_stddev,
+    )
+
+    # Empty inputs
+    assert calculate_mean([]) == 0.0
+    assert calculate_sample_stddev([]) == 0.0
+    assert calculate_sample_stddev([0.05]) == 0.0
+
+    # Empty series in regime shift
+    empty_metrics = compute_preemption_regime_shift([])
+    assert empty_metrics["severity"] == "STABLE"
+    assert empty_metrics["z_score"] == 0.0
+
+    # Short series (<= 7 days)
+    short_metrics = compute_preemption_regime_shift([0.05, 0.06, 0.05])
+    assert short_metrics["severity"] == "STABLE"
+    assert short_metrics["recent_7d_rate"] > 0
+
