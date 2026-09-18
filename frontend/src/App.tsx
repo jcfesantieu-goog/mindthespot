@@ -7,6 +7,7 @@ import {
   Radio,
   ExternalLink,
   UserCheck,
+  Database,
 } from "lucide-react";
 import { AnomalyItem, PivotCandidate, PoolSummary, WatchlistEntry } from "./types";
 import {
@@ -15,6 +16,9 @@ import {
   fetchPivots,
   fetchPools,
   fetchWatchlist,
+  fetchCacheStatus,
+  triggerCacheRefresh,
+  CacheStatusResponse,
   toggleWatchlistPool,
   deleteWatchlistPool,
   deleteWatchlistTarget,
@@ -35,8 +39,11 @@ export const App: React.FC = () => {
   const [pools, setPools] = useState<PoolSummary[]>([]);
   const [watchlist, setWatchlist] = useState<WatchlistEntry[]>([]);
   const [userContext, setUserContext] = useState<UserContextResponse | null>(null);
+  const [cacheStatus, setCacheStatus] = useState<CacheStatusResponse | null>(null);
+  const [showCacheDetails, setShowCacheDetails] = useState<boolean>(false);
   const [loading, setLoading] = useState(true);
   const [isRefreshing, setIsRefreshing] = useState(false);
+  const [isForceRefreshing, setIsForceRefreshing] = useState(false);
   const [lastRefreshed, setLastRefreshed] = useState<string>("");
 
   // Inspector modal state
@@ -57,11 +64,12 @@ export const App: React.FC = () => {
   const loadAllData = async () => {
     setIsRefreshing(true);
     try {
-      const [anomRes, poolRes, watchRes, userRes] = await Promise.allSettled([
+      const [anomRes, poolRes, watchRes, userRes, cacheRes] = await Promise.allSettled([
         fetchAnomalies(),
         fetchPools(),
         fetchWatchlist(),
         fetchCurrentUser(),
+        fetchCacheStatus(),
       ]);
 
       const email = userRes.status === "fulfilled" ? userRes.value.email : undefined;
@@ -76,6 +84,7 @@ export const App: React.FC = () => {
 
       if (userRes.status === "fulfilled") setUserContext(userRes.value);
       if (watchRes.status === "fulfilled") setWatchlist(watchRes.value);
+      if (cacheRes.status === "fulfilled") setCacheStatus(cacheRes.value);
 
       if (poolRes.status === "fulfilled") {
         const enrichedPools = poolRes.value.map((p) => ({
@@ -99,6 +108,22 @@ export const App: React.FC = () => {
     } finally {
       setLoading(false);
       setIsRefreshing(false);
+    }
+  };
+
+  const handleForceRefresh = async () => {
+    setIsForceRefreshing(true);
+    try {
+      await triggerCacheRefresh();
+      // Wait briefly for pre-warm initiation then reload
+      setTimeout(async () => {
+        await loadAllData();
+        setIsForceRefreshing(false);
+      }, 1500);
+    } catch (err) {
+      console.error("Failed to trigger cache refresh:", err);
+      await loadAllData();
+      setIsForceRefreshing(false);
     }
   };
 
@@ -287,19 +312,119 @@ export const App: React.FC = () => {
               </div>
             )}
 
-            <div className="hidden lg:flex items-center gap-2 text-[11px] font-mono text-slate-400">
-              <span className="w-2 h-2 rounded-full bg-emerald-400" />
-              <span>Live Engine (15m Cache)</span>
+            {/* Cache Provenance Badge with Popover */}
+            <div className="relative">
+              <button
+                onClick={() => setShowCacheDetails(!showCacheDetails)}
+                className={cn(
+                  "hidden sm:flex items-center gap-2 px-2.5 py-1 rounded-lg border text-xs font-mono transition-all cursor-pointer",
+                  cacheStatus?.is_warming
+                    ? "bg-amber-500/10 text-amber-300 border-amber-500/30"
+                    : cacheStatus?.source === "bigquery"
+                    ? "bg-emerald-500/10 text-emerald-300 border-emerald-500/30 hover:bg-emerald-500/20"
+                    : "bg-blue-500/10 text-blue-300 border-blue-500/30 hover:bg-blue-500/20"
+                )}
+                title="Click to view cache telemetry details & force refresh"
+              >
+                <span
+                  className={cn(
+                    "w-2 h-2 rounded-full",
+                    cacheStatus?.is_warming
+                      ? "bg-amber-400 animate-ping"
+                      : cacheStatus?.source === "bigquery"
+                      ? "bg-emerald-400"
+                      : "bg-blue-400"
+                  )}
+                />
+                <span className="font-semibold">
+                  {cacheStatus?.is_warming
+                    ? "Syncing BigQuery..."
+                    : cacheStatus?.source === "bigquery"
+                    ? `BigQuery Live (${cacheStatus.total_pools_cached.toLocaleString()} pools)`
+                    : `Synthetic Mock (${cacheStatus?.total_pools_cached?.toLocaleString() || 6240} pools)`}
+                </span>
+              </button>
+
+              {/* Cache Details Dropdown Popover */}
+              {showCacheDetails && (
+                <div
+                  className="absolute right-0 mt-2 w-72 rounded-xl bg-slate-900 border border-slate-800 shadow-2xl p-4 z-50 text-xs font-mono"
+                  onMouseLeave={() => setShowCacheDetails(false)}
+                >
+                  <div className="flex items-center justify-between pb-2 border-b border-slate-800">
+                    <div className="flex items-center gap-1.5">
+                      <Database className="w-3.5 h-3.5 text-cyan-400" />
+                      <span className="text-slate-400 font-bold uppercase tracking-wider text-[10px]">
+                        Cache Provenance
+                      </span>
+                    </div>
+                    <span
+                      className={cn(
+                        "px-1.5 py-0.5 rounded text-[10px] font-bold uppercase",
+                        cacheStatus?.source === "bigquery"
+                          ? "bg-emerald-500/20 text-emerald-300 border border-emerald-500/40"
+                          : "bg-blue-500/20 text-blue-300 border border-blue-500/40"
+                      )}
+                    >
+                      {cacheStatus?.source || "unknown"}
+                    </span>
+                  </div>
+
+                  <div className="space-y-2 py-3 text-slate-300">
+                    <div className="flex justify-between">
+                      <span className="text-slate-400">Cached Pools:</span>
+                      <span className="font-bold text-white">
+                        {cacheStatus?.total_pools_cached.toLocaleString() ?? "N/A"}
+                      </span>
+                    </div>
+                    <div className="flex justify-between">
+                      <span className="text-slate-400">Price Intervals:</span>
+                      <span className="text-white">
+                        {cacheStatus?.total_price_intervals.toLocaleString() ?? "N/A"}
+                      </span>
+                    </div>
+                    <div className="flex justify-between">
+                      <span className="text-slate-400">Preemption Points:</span>
+                      <span className="text-white">
+                        {cacheStatus?.total_preemption_points.toLocaleString() ?? "N/A"}
+                      </span>
+                    </div>
+                    <div className="flex justify-between">
+                      <span className="text-slate-400">Last Synced:</span>
+                      <span className="text-slate-300">
+                        {cacheStatus?.last_synced_at
+                          ? new Date(cacheStatus.last_synced_at).toLocaleTimeString()
+                          : "Boot Time"}
+                      </span>
+                    </div>
+                  </div>
+
+                  <button
+                    onClick={() => {
+                      setShowCacheDetails(false);
+                      handleForceRefresh();
+                    }}
+                    disabled={isForceRefreshing}
+                    className="w-full mt-1 flex items-center justify-center gap-1.5 py-1.5 px-3 rounded-lg bg-cyan-600/20 hover:bg-cyan-600/30 text-cyan-300 border border-cyan-500/40 transition-colors cursor-pointer"
+                  >
+                    <RefreshCw className={cn("w-3 h-3", isForceRefreshing && "animate-spin")} />
+                    <span>Force Refresh from BigQuery</span>
+                  </button>
+                </div>
+              )}
             </div>
 
             <button
               onClick={loadAllData}
-              disabled={isRefreshing}
-              className="p-2 rounded-xl bg-slate-900 hover:bg-slate-800 text-slate-300 hover:text-white transition-colors border border-slate-800"
-              title="Refresh Telemetry"
+              disabled={isRefreshing || isForceRefreshing}
+              className="p-2 rounded-xl bg-slate-900 hover:bg-slate-800 text-slate-300 hover:text-white transition-colors border border-slate-800 cursor-pointer"
+              title="Refresh Telemetry Data"
             >
               <RefreshCw
-                className={cn("w-4 h-4", isRefreshing && "animate-spin text-cyan-400")}
+                className={cn(
+                  "w-4 h-4 text-slate-400",
+                  (isRefreshing || isForceRefreshing) && "animate-spin text-cyan-400"
+                )}
               />
             </button>
           </div>

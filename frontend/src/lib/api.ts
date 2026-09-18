@@ -150,3 +150,33 @@ export async function fetchCurrentUser(): Promise<UserContextResponse> {
   }
 }
 
+export interface CacheStatusResponse {
+  source: "bigquery" | "synthetic" | string;
+  last_synced_at: string | null;
+  total_pools_cached: number;
+  total_price_intervals: number;
+  total_preemption_points: number;
+  is_warming: boolean;
+}
+
+export interface CacheRefreshResponse {
+  status: string;
+  message: string;
+  triggered_at: string;
+}
+
+export async function fetchCacheStatus(): Promise<CacheStatusResponse> {
+  const res = await fetch(`${BASE_URL}/v1/cache/status`);
+  if (!res.ok) throw new Error(`Failed to fetch cache status: ${res.statusText}`);
+  return res.json();
+}
+
+export async function triggerCacheRefresh(): Promise<CacheRefreshResponse> {
+  const res = await fetch(`${BASE_URL}/v1/cache/refresh`, {
+    method: "POST",
+  });
+  if (!res.ok) throw new Error(`Failed to trigger cache refresh: ${res.statusText}`);
+  return res.json();
+}
+
+

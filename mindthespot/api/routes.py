@@ -1,5 +1,4 @@
-"""FastAPI route handlers for MindTheSpot REST API."""
-
+import os
 from datetime import UTC, datetime
 from typing import Annotated
 
@@ -29,7 +28,8 @@ def get_spot_service() -> SpotDataService:
     """Dependency injection provider for SpotDataService."""
     global _service_instance
     if _service_instance is None:
-        _service_instance = SpotDataService()
+        sync_prewarm = os.getenv("SYNC_PREWARM", "false").lower() in ("true", "1", "yes")
+        _service_instance = SpotDataService(initialize_synthetic=not sync_prewarm)
     return _service_instance
 
 

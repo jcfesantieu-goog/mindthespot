@@ -11,6 +11,10 @@ from fastapi.staticfiles import StaticFiles
 from mindthespot.api.routes import get_spot_service
 from mindthespot.api.routes import router as api_router
 
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
+)
 logger = logging.getLogger(__name__)
 
 FRONTEND_DIST_DIR = Path(__file__).resolve().parent.parent.parent / "frontend" / "dist"
@@ -23,7 +27,22 @@ async def lifespan(app: FastAPI):
     service = get_spot_service()
     if os.getenv("SYNC_PREWARM", "false").lower() in ("true", "1", "yes"):
         logger.info("Performing synchronous cache pre-warm from BigQuery...")
-        service.warm_cache_from_bigquery()
+        success = service.warm_cache_from_bigquery()
+        status = service.get_cache_status()
+        if success:
+            logger.info(
+                "BigQuery cache pre-warm succeeded: source=%s, pools=%d, prices=%d, preemptions=%d",
+                status["source"],
+                status["total_pools_cached"],
+                status["total_price_intervals"],
+                status["total_preemption_points"],
+            )
+        else:
+            logger.error(
+                "BigQuery cache pre-warm failed or incomplete. Current source=%s, pools=%d",
+                status["source"],
+                status["total_pools_cached"],
+            )
     else:
         logger.info("Triggering asynchronous background pre-warm from BigQuery...")
         service.trigger_background_sync()

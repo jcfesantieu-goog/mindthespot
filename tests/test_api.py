@@ -206,3 +206,24 @@ def test_auth_me_with_iap_headers(client):
     assert data["email"] == "sre@jcfesantieu.altostrat.com"
     assert data["user_id"] == "123456789"
     assert data["is_authenticated"] is True
+
+
+def test_cache_status_endpoint(client):
+    res = client.get("/api/v1/cache/status")
+    assert res.status_code == 200
+    data = res.json()
+    assert "source" in data
+    assert "total_pools_cached" in data
+    assert "total_price_intervals" in data
+    assert "total_preemption_points" in data
+    assert "is_warming" in data
+    assert data["source"] in ["synthetic", "bigquery"]
+
+
+def test_cache_refresh_endpoint(client):
+    res = client.post("/api/v1/cache/refresh")
+    assert res.status_code == 200
+    data = res.json()
+    assert data["status"] == "triggered"
+    assert "triggered_at" in data
+

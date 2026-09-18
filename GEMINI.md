@@ -53,6 +53,8 @@ mindthespot/
    - Real-time discount: $\text{Discount \%} = \frac{\text{OnDemand} - \text{Spot}}{\text{OnDemand}} \times 100$.
 4. **Hybrid In-Memory Pre-Warming (ADR 002)**:
    - On boot, `SpotDataService` loads all pools and curves into RAM dictionaries ($\approx 15\text{ MB}$).
+   - Set `SYNC_PREWARM="true"` in Cloud Run (`terraform/cloud_run.tf`) so the ~10s BigQuery load completes during startup probes with 100% CPU allocation, avoiding CPU-throttled daemon thread starvation.
+   - UI top bar displays real-time **Cache Provenance Badge** (BigQuery Live vs. Synthetic Mock, pool counts, last sync time) with force-refresh action.
    - API endpoints serve requests in $< 5\text{ ms}$ with zero BigQuery slot usage. Post-crawl refresh triggered via `POST /api/v1/cache/refresh`.
 5. **Multi-Watchlist Management & Natural Sorting (ADR 003)**:
    - Dual-layer workload watchlists with localized storage (`mindthespot_watchlist_${email}`) and server sync (`POST /api/v1/watchlist`, `POST /api/v1/watchlist/toggle`, `DELETE /api/v1/watchlist`).

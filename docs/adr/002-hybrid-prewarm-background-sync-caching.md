@@ -43,14 +43,14 @@ We designed and implemented a **Hybrid Pre-Warmed Read-Through In-Memory Cache w
 +-------------------------------------------------------------+
 ```
 
-### 1. Startup Pre-Warming (`lifespan`)
-- On Cloud Run container initialization, a single fast batch query executes against `mindthespot_analytics.v_regime_shifts` and `mindthespot_raw.price_history`.
+### 1. Startup Pre-Warming (`lifespan`) & `SYNC_PREWARM`
+- On Cloud Run container initialization, `SYNC_PREWARM="true"` instructs the FastAPI lifespan handler to block startup probes until the BigQuery batch query executes against `mindthespot_analytics.v_regime_shifts` and `mindthespot_raw.price_history`.
+- **Cloud Run CPU Throttling Rationale:** On Cloud Run with CPU throttling (the default outside of active HTTP requests), background daemon threads are starved of CPU cycles and paused. By setting `SYNC_PREWARM="true"` in `terraform/cloud_run.tf`, Cloud Run allocates 100% startup CPU to complete the ~10s BigQuery load before marking the container healthy and routing live traffic.
 - The query results are transformed into strongly-typed Pydantic schemas and stored in memory.
-- Startup warm-up takes $\approx 1.5$–$2.2$ seconds, completely masked from users when Cloud Run runs with `min-instances: 1` or startup CPU boost.
 
 ### 2. Resilient Graceful Fallback
 - If BigQuery credentials are not configured (e.g. local offline development, unit tests) or if BigQuery encounters a transient network timeout during boot:
-  - The service logs a warning and falls back to a deterministic synthetic dataset.
+  - The service logs full exception traces (`logger.error("...", exc, exc_info=True)`) and falls back to a deterministic synthetic dataset.
   - The container **never crashes on startup**, guaranteeing 100% service availability.
 
 ### 3. RAM Footprint
@@ -60,8 +60,15 @@ We designed and implemented a **Hybrid Pre-Warmed Read-Through In-Memory Cache w
 ### 4. Background Sync & Hot Swapping
 - The API exposes management endpoints:
   - `GET /api/v1/cache/status`: Returns current cache state, last warm timestamp, pool count, and source (`bigquery` vs `synthetic`).
-  - `POST /api/v1/cache/refresh`: Spawns a non-blocking background task that executes the BigQuery refresh and atomically replaces the in-memory cache pointer. Existing serving threads are never blocked.
+  - `POST /api/v1/cache/refresh`: Spawns a background task that executes the BigQuery refresh and atomically replaces the in-memory cache pointer. Existing serving threads are never blocked.
 - Cloud Scheduler or the crawler job invokes `POST /api/v1/cache/refresh` after each crawl run.
+
+### 5. UI Cache Provenance Telemetry
+- The React dashboard header includes a dynamic **Cache Provenance Badge**:
+  - 🟢 **BigQuery Live** (`4,057 pools` • Synced timestamp)
+  - 🟡 **Syncing BigQuery...** (active refresh in progress)
+  - 🔵 **Synthetic Mock** (development fallback)
+- Clicking the badge opens a telemetry popover detailing total pools, price intervals, preemption data points, and provides a **Force Refresh from BigQuery** action.
 
 ---
 
