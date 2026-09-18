@@ -220,4 +220,66 @@ Updated `sql/views/templates/v_regime_shifts.sql.tpl`, `sql/views/01_v_regime_sh
 2. **Full Test Suite**: 48/48 tests passing across the entire repository.
 3. **Linting & Formatting**: 100% compliant with `ruff check .` and `ruff format .`.
 
+---
+
+# Issue #3: Synthetic Fallback Anomaly & BigQuery Analytical View Drift
+
+## Status
+**RESOLVED** (2026-09-18)
+
+## Affects
+- `mindthespot/api/service.py`
+- `sql/views/templates/v_regime_shifts.sql.tpl`
+- `terraform/bigquery.tf`
+- BigQuery views: `mindthespot_analytics.v_regime_shifts`, `mindthespot_analytics.v_pivot_recommendations`
+
+---
+
+## 1. Incident Description & Observation
+On the MindTheSpot Situation Room dashboard, two major statistical anomalies were observed:
+1. **Unrealistically Low Anomaly Counts**: Exactly 10 Critical Shifts, 0 Elevated Risk, 15 Price Hikes, and 15 Price Drops across 6,240 monitored pools.
+2. **Flat 1-Year Pricing Curve for Unaffected Pools**: In the Inspector modal for `c4a-standard-16` / `c4d-standard-16` in `us-east1-b`, the spot price displayed a completely flat line of `$0.6080/hr` spanning 335 days with only 2 boundary data points, contradicting real Google Cloud pricing history.
+
+---
+
+## 2. Root Cause Analysis
+1. **Terraform Pipeline Abortion on Existing Table**:
+   During the rollout of the BigQuery-backed on-demand pricing feature, table `mindthespot_raw.on_demand_pricing` was populated via the Python seeder script prior to the GitOps workflow. When GitHub Actions ran `terraform apply`, Terraform failed with:
+   `Error 409: Already Exists: Table jcf-mindthespot:mindthespot_raw.on_demand_pricing`.
+   This aborted the pipeline before Terraform could update the analytical views `v_regime_shifts` and `v_pivot_recommendations` in dataset `mindthespot_analytics`.
+2. **Query Failure During Application Startup**:
+   When Cloud Run revision `mindthespot-app-00024-q7k` booted, `warm_cache_from_bigquery()` attempted to query:
+   `SELECT ..., ondemand_hourly_price, spot_discount_pct FROM {pid}.mindthespot_analytics.v_regime_shifts`
+   Because `v_regime_shifts` in `mindthespot_analytics` had not received the updated column definitions, BigQuery returned:
+   `400 Unrecognized name: ondemand_hourly_price at [4:32]`
+3. **Silent Fallback to Hardcoded Synthetic Dataset**:
+   The exception handler caught the error and called `_initialize_synthetic_dataset()`. In this synthetic fallback generator:
+   - Exactly 10 pools were marked `is_critical` (hardcoded to `europe-west4 / zone-a / c4d`).
+   - Exactly 0 pools were marked `is_elevated`.
+   - Exactly 15 pools had synthetic hikes and 15 had synthetic drops.
+   - All remaining ~6,200 pools were assigned a single flat 335-day interval at rate `unit_price * cores` (for 16 cores, `$0.038 * 16 = $0.6080/hr`).
+
+---
+
+## 3. Architecture & Fix Implementation
+1. **State Reconciliation**: Imported `google_bigquery_table.on_demand_pricing` directly into the Terraform remote GCS state.
+2. **View Synchronization**: Compiled and deployed updated view definitions `v_regime_shifts` and `v_pivot_recommendations` into dataset `jcf-mindthespot.mindthespot_analytics`.
+3. **Resilient Service Configuration**:
+   - Enhanced `mindthespot/api/service.py` to resolve project ID across `GCP_PROJECT_ID`, `GCP_PROJECT`, and `PROJECT_ID`.
+   - Parametrized raw and analytics datasets via `BIGQUERY_DATASET_RAW` and `BIGQUERY_DATASET_ANALYTICS`.
+   - Improved error logging with `logger.error(..., exc_info=True)` to record full tracebacks in Cloud Logging upon failure.
+
+---
+
+## 4. Verification & Validation
+- **Real BigQuery Cache Pre-warm**: Successfully loaded 4,057 real pools, 20,589 historical price intervals, and 121,710 daily preemption points.
+- **Genuine Pricing Dynamics**:
+  - `c4a-standard-16 us-east1-b`: 17 distinct price intervals across 2026 ranging between `$0.244` and `$0.396/hr`. On-demand price: `$0.72128/hr` (50.4% spot discount).
+  - `c4d-standard-16 us-east1-b`: 11 distinct price intervals across 2026 ranging between `$0.265` and `$0.322/hr`. On-demand price: `$0.7712/hr` (60.3% spot discount).
+- **Accurate Metric Distributions Across Monitored Pools**:
+  - **109 Critical Shifts** (48 with price hikes, 61 volume/preemption spikes)
+  - **65 Elevated Risk Pools** (22 with price hikes, 43 preemption shifts)
+  - **1,791 Price Hikes** and **2,162 Stable Pools**
+
+
 

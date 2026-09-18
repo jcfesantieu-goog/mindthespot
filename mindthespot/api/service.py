@@ -217,9 +217,22 @@ class SpotDataService:
         and mindthespot_raw.preemption_history into memory. Falls back to synthetic dataset
         if BigQuery is unavailable or unauthenticated.
         """
-        pid = project_id or os.getenv("GCP_PROJECT") or os.getenv("PROJECT_ID") or "jcf-mindthespot"
+        pid = (
+            project_id
+            or os.getenv("GCP_PROJECT")
+            or os.getenv("PROJECT_ID")
+            or os.getenv("GCP_PROJECT_ID")
+            or "jcf-mindthespot"
+        )
+        ds_raw = os.getenv("BIGQUERY_DATASET_RAW", "mindthespot_raw")
+        ds_analytics = os.getenv("BIGQUERY_DATASET_ANALYTICS", "mindthespot_analytics")
         self._is_warming = True
-        logger.info("Pre-warming MindTheSpot cache from BigQuery in project: %s", pid)
+        logger.info(
+            "Pre-warming MindTheSpot cache from BigQuery in project: %s (raw: %s, analytics: %s)",
+            pid,
+            ds_raw,
+            ds_analytics,
+        )
 
         try:
             from google.cloud import bigquery
@@ -234,13 +247,13 @@ class SpotDataService:
                    recent_7d_rate, baseline_rate, rate_delta, z_score,
                    hourly_price, currency, ondemand_hourly_price, spot_discount_pct,
                    price_hike_detected, severity
-            FROM `{pid}.mindthespot_analytics.v_regime_shifts`
+            FROM `{pid}.{ds_analytics}.v_regime_shifts`
             """
 
             q_prices = f"""
             WITH latest_snapshot AS (
                 SELECT MAX(snapshot_date) AS max_snapshot_date
-                FROM `{pid}.mindthespot_raw.price_history`
+                FROM `{pid}.{ds_raw}.price_history`
             ),
             deduped AS (
                 SELECT region, machine_type, interval_start, interval_end, hourly_price, currency,
@@ -248,7 +261,7 @@ class SpotDataService:
                            PARTITION BY region, machine_type, interval_start
                            ORDER BY crawled_at DESC
                        ) AS rn
-                FROM `{pid}.mindthespot_raw.price_history`
+                FROM `{pid}.{ds_raw}.price_history`
                 WHERE snapshot_date = (SELECT max_snapshot_date FROM latest_snapshot)
             )
             SELECT region, machine_type, interval_start, interval_end, hourly_price, currency
@@ -260,7 +273,7 @@ class SpotDataService:
             q_preempt = f"""
             WITH latest_snapshot AS (
                 SELECT MAX(snapshot_date) AS max_snapshot_date
-                FROM `{pid}.mindthespot_raw.preemption_history`
+                FROM `{pid}.{ds_raw}.preemption_history`
             ),
             deduped AS (
                 SELECT region, zone, machine_type, telemetry_date, preemption_rate,
@@ -268,7 +281,7 @@ class SpotDataService:
                            PARTITION BY region, zone, machine_type, telemetry_date
                            ORDER BY crawled_at DESC
                        ) AS rn
-                FROM `{pid}.mindthespot_raw.preemption_history`
+                FROM `{pid}.{ds_raw}.preemption_history`
                 WHERE snapshot_date = (SELECT max_snapshot_date FROM latest_snapshot)
             )
             SELECT region, zone, machine_type, telemetry_date, preemption_rate
@@ -410,10 +423,11 @@ class SpotDataService:
             return True
 
         except Exception as exc:
-            logger.warning(
-                "Could not pre-warm cache from BigQuery (%s). Keeping active cache (source=%s).",
+            logger.error(
+                "Could not pre-warm cache from BigQuery: %s. Keeping active cache (source=%s).",
                 exc,
                 self._data_source,
+                exc_info=True,
             )
             if not self._pool_cache:
                 self._initialize_synthetic_dataset()
