@@ -1,6 +1,17 @@
-import React, { useState } from "react";
-import { Search, Star, Shuffle, Eye, ChevronLeft, ChevronRight } from "lucide-react";
-import { PoolSummary } from "../types";
+import React, { useState, useRef, useEffect } from "react";
+import {
+  Search,
+  Star,
+  Shuffle,
+  Eye,
+  ChevronLeft,
+  ChevronRight,
+  ChevronDown,
+  Settings2,
+  Plus,
+} from "lucide-react";
+import { PoolSummary, WatchlistEntry } from "../types";
+import { WatchlistModal } from "./WatchlistModal";
 import {
   cn,
   formatPercent,
@@ -16,6 +27,9 @@ interface PoolExplorerProps {
   onSelectPool: (pool: PoolSummary) => void;
   onViewPivots: (pool: PoolSummary) => void;
   onToggleWatchlist?: (pool: PoolSummary) => void;
+  watchlist?: WatchlistEntry[];
+  onRefreshData?: () => void;
+  onRemoveWatchlistTarget?: (entry: WatchlistEntry) => void;
 }
 
 export const PoolExplorer: React.FC<PoolExplorerProps> = ({
@@ -23,14 +37,21 @@ export const PoolExplorer: React.FC<PoolExplorerProps> = ({
   onSelectPool,
   onViewPivots,
   onToggleWatchlist,
+  watchlist = [],
+  onRefreshData,
+  onRemoveWatchlistTarget,
 }) => {
   const [searchTerm, setSearchTerm] = useState<string>("");
   const [selectedRegion, setSelectedRegion] = useState<string>("ALL");
   const [selectedFamily, setSelectedFamily] = useState<string>("ALL");
   const [selectedDiscountTier, setSelectedDiscountTier] = useState<DiscountTier | "ALL">("ALL");
-  const [watchlistOnly, setWatchlistOnly] = useState<boolean>(false);
+  const [selectedWatchlist, setSelectedWatchlist] = useState<string>("ALL");
+  const [watchlistMenuOpen, setWatchlistMenuOpen] = useState<boolean>(false);
+  const [watchlistModalOpen, setWatchlistModalOpen] = useState<boolean>(false);
+  const [watchlistModalAddMode, setWatchlistModalAddMode] = useState<boolean>(false);
   const [currentPage, setCurrentPage] = useState<number>(1);
   const [pageSize, setPageSize] = useState<number>(50);
+  const dropdownRef = useRef<HTMLDivElement>(null);
 
   type SortField =
     | "machine_type"
@@ -44,6 +65,27 @@ export const PoolExplorer: React.FC<PoolExplorerProps> = ({
 
   const [sortField, setSortField] = useState<SortField | null>(null);
   const [sortOrder, setSortOrder] = useState<"asc" | "desc">("desc");
+
+  // Close dropdown on outside click
+  useEffect(() => {
+    const handleClickOutside = (event: MouseEvent) => {
+      if (dropdownRef.current && !dropdownRef.current.contains(event.target as Node)) {
+        setWatchlistMenuOpen(false);
+      }
+    };
+    document.addEventListener("mousedown", handleClickOutside);
+    return () => document.removeEventListener("mousedown", handleClickOutside);
+  }, []);
+
+  const poolMatchesWatchlist = (p: PoolSummary, entry: WatchlistEntry) => {
+    if (p.custom_label && entry.name && p.custom_label === entry.name) {
+      return true;
+    }
+    if (p.region !== entry.region) return false;
+    const zoneMatch = entry.zones.length === 0 || entry.zones.includes(p.zone);
+    const mtMatch = entry.machine_types.length === 0 || entry.machine_types.includes(p.machine_type);
+    return zoneMatch && mtMatch;
+  };
 
   // Dynamically extract unique regions and families from loaded pools
   const regions = [
@@ -71,8 +113,9 @@ export const PoolExplorer: React.FC<PoolExplorerProps> = ({
     setCurrentPage(1);
   };
 
-  const handleWatchlistToggle = () => {
-    setWatchlistOnly(!watchlistOnly);
+  const handleSelectWatchlist = (val: string) => {
+    setSelectedWatchlist(val);
+    setWatchlistMenuOpen(false);
     setCurrentPage(1);
   };
 
@@ -99,7 +142,18 @@ export const PoolExplorer: React.FC<PoolExplorerProps> = ({
   };
 
   const filteredPools = pools.filter((p) => {
-    if (watchlistOnly && !p.is_watchlist) return false;
+    if (selectedWatchlist === "WATCHLIST_ANY") {
+      if (!p.is_watchlist) return false;
+    } else if (selectedWatchlist !== "ALL") {
+      const entry = watchlist.find(
+        (w) => (w.name || `${w.region} Workload`) === selectedWatchlist
+      );
+      if (entry) {
+        if (!poolMatchesWatchlist(p, entry)) return false;
+      } else if (p.custom_label !== selectedWatchlist) {
+        return false;
+      }
+    }
     if (selectedRegion !== "ALL" && p.region !== selectedRegion) return false;
     if (selectedFamily !== "ALL" && p.family !== selectedFamily) return false;
     if (selectedDiscountTier !== "ALL") {
@@ -243,19 +297,161 @@ export const PoolExplorer: React.FC<PoolExplorerProps> = ({
           </select>
         </div>
 
-        {/* Watchlist Toggle */}
-        <button
-          onClick={handleWatchlistToggle}
-          className={cn(
-            "flex items-center gap-1.5 px-3 py-2 rounded-lg text-xs font-medium transition-colors border",
-            watchlistOnly
-              ? "bg-amber-500/20 text-amber-300 border-amber-500/40"
-              : "bg-slate-950 text-slate-400 border-slate-800 hover:text-slate-200"
+        {/* Multi-Watchlist Dropdown */}
+        <div className="relative" ref={dropdownRef}>
+          <button
+            onClick={() => setWatchlistMenuOpen(!watchlistMenuOpen)}
+            className={cn(
+              "flex items-center gap-1.5 px-3 py-2 rounded-lg text-xs font-medium font-mono transition-colors border",
+              selectedWatchlist !== "ALL"
+                ? "bg-amber-500/20 text-amber-300 border-amber-500/40"
+                : "bg-slate-950 text-slate-400 border-slate-800 hover:text-slate-200"
+            )}
+            title="Filter by Watchlists or Manage Workloads"
+          >
+            <Star className={cn("w-3.5 h-3.5", selectedWatchlist !== "ALL" && "fill-amber-400 text-amber-400")} />
+            <span>
+              {selectedWatchlist === "ALL"
+                ? `Watchlists (${watchlist.length})`
+                : selectedWatchlist === "WATCHLIST_ANY"
+                ? `All Watchlists (${pools.filter((p) => p.is_watchlist).length})`
+                : `${selectedWatchlist}`}
+            </span>
+            <ChevronDown className={cn("w-3 h-3 transition-transform", watchlistMenuOpen && "rotate-180")} />
+          </button>
+
+          {/* Watchlists Popover Menu */}
+          {watchlistMenuOpen && (
+            <div className="absolute right-0 mt-2 w-72 bg-slate-900 border border-slate-800 rounded-xl shadow-2xl z-50 p-2 font-mono text-xs animate-in fade-in zoom-in-95 duration-100">
+              <div className="px-2 py-1.5 flex items-center justify-between border-b border-slate-800 text-slate-400">
+                <span className="font-bold text-[11px] uppercase tracking-wider">Workload Watchlists</span>
+                <button
+                  onClick={() => {
+                    setWatchlistMenuOpen(false);
+                    setWatchlistModalAddMode(false);
+                    setWatchlistModalOpen(true);
+                  }}
+                  className="text-cyan-400 hover:text-cyan-300 text-[10px] flex items-center gap-1"
+                >
+                  <Settings2 className="w-3 h-3" />
+                  <span>Manage</span>
+                </button>
+              </div>
+
+              <div className="py-1 space-y-0.5 max-h-60 overflow-y-auto">
+                <button
+                  onClick={() => {
+                    handleSelectWatchlist("ALL");
+                  }}
+                  className={cn(
+                    "w-full text-left px-2.5 py-1.5 rounded-lg flex items-center justify-between transition-colors",
+                    selectedWatchlist === "ALL"
+                      ? "bg-slate-800 text-cyan-300 font-semibold"
+                      : "text-slate-300 hover:bg-slate-800/60"
+                  )}
+                >
+                  <span>All Monitored Pools</span>
+                  <span className="text-[10px] text-slate-500">{pools.length}</span>
+                </button>
+
+                <button
+                  onClick={() => {
+                    handleSelectWatchlist("WATCHLIST_ANY");
+                  }}
+                  className={cn(
+                    "w-full text-left px-2.5 py-1.5 rounded-lg flex items-center justify-between transition-colors",
+                    selectedWatchlist === "WATCHLIST_ANY"
+                      ? "bg-amber-500/20 text-amber-300 font-semibold"
+                      : "text-slate-300 hover:bg-slate-800/60"
+                  )}
+                >
+                  <div className="flex items-center gap-1.5">
+                    <Star className="w-3 h-3 text-amber-400 fill-amber-400" />
+                    <span>All Watchlists</span>
+                  </div>
+                  <span className="text-[10px] px-1.5 py-0.5 rounded bg-amber-500/20 text-amber-400 font-bold">
+                    {pools.filter((p) => p.is_watchlist).length}
+                  </span>
+                </button>
+
+                {watchlist.length > 0 && (
+                  <div className="pt-1.5 border-t border-slate-800/80 my-1">
+                    <div className="px-2 pb-1 text-[10px] text-slate-500 uppercase tracking-wider font-semibold">
+                      Named Watchlists
+                    </div>
+                    {watchlist.map((entry, idx) => {
+                      const entryLabel = entry.name || `${entry.region} Workload`;
+                      const count = pools.filter((p) => poolMatchesWatchlist(p, entry)).length;
+                      const hasCritical = pools.some(
+                        (p) => poolMatchesWatchlist(p, entry) && p.severity === "CRITICAL"
+                      );
+                      const isSelected = selectedWatchlist === entryLabel;
+
+                      return (
+                        <button
+                          key={`${entry.region}-${entry.name || idx}`}
+                          onClick={() => {
+                            handleSelectWatchlist(entryLabel);
+                          }}
+                          className={cn(
+                            "w-full text-left px-2.5 py-1.5 rounded-lg flex items-center justify-between transition-colors",
+                            isSelected
+                              ? "bg-amber-500/20 text-amber-300 font-semibold"
+                              : "text-slate-300 hover:bg-slate-800/60"
+                          )}
+                        >
+                          <div className="flex items-center gap-1.5 truncate pr-2">
+                            <span className="truncate">{entryLabel}</span>
+                            <span className="text-[9px] px-1 rounded bg-slate-800 text-slate-400 shrink-0">
+                              {entry.region}
+                            </span>
+                          </div>
+                          <span
+                            className={cn(
+                              "text-[10px] px-1.5 py-0.5 rounded font-bold shrink-0",
+                              hasCritical
+                                ? "bg-rose-500/20 text-rose-400"
+                                : count > 0
+                                ? "bg-amber-500/20 text-amber-400"
+                                : "bg-slate-800 text-slate-500"
+                            )}
+                          >
+                            {count}
+                          </span>
+                        </button>
+                      );
+                    })}
+                  </div>
+                )}
+              </div>
+
+              <div className="pt-1.5 border-t border-slate-800 flex flex-col gap-1">
+                <button
+                  onClick={() => {
+                    setWatchlistMenuOpen(false);
+                    setWatchlistModalAddMode(true);
+                    setWatchlistModalOpen(true);
+                  }}
+                  className="w-full text-left px-2 py-1.5 rounded-lg text-amber-400 hover:bg-amber-500/10 transition-colors flex items-center gap-1.5 text-xs font-semibold"
+                >
+                  <Plus className="w-3.5 h-3.5" />
+                  <span>Add New Watchlist...</span>
+                </button>
+                <button
+                  onClick={() => {
+                    setWatchlistMenuOpen(false);
+                    setWatchlistModalAddMode(false);
+                    setWatchlistModalOpen(true);
+                  }}
+                  className="w-full text-left px-2 py-1.5 rounded-lg text-slate-400 hover:text-slate-200 hover:bg-slate-800 transition-colors flex items-center gap-1.5 text-xs"
+                >
+                  <Settings2 className="w-3.5 h-3.5" />
+                  <span>Manage All Watchlists...</span>
+                </button>
+              </div>
+            </div>
           )}
-        >
-          <Star className={cn("w-3.5 h-3.5", watchlistOnly && "fill-amber-400")} />
-          <span>Watchlist Only</span>
-        </button>
+        </div>
       </div>
 
       {/* Family Filters */}
@@ -612,6 +808,16 @@ export const PoolExplorer: React.FC<PoolExplorerProps> = ({
           </div>
         </div>
       </div>
+
+      {/* Watchlist Management Modal */}
+      <WatchlistModal
+        isOpen={watchlistModalOpen}
+        onClose={() => setWatchlistModalOpen(false)}
+        watchlist={watchlist}
+        onRefreshData={onRefreshData}
+        onRemoveTarget={onRemoveWatchlistTarget}
+        initialAddMode={watchlistModalAddMode}
+      />
     </div>
   );
 };

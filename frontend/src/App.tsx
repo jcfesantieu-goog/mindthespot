@@ -465,6 +465,9 @@ export const App: React.FC = () => {
             {activeTab === "explorer" && (
               <PoolExplorer
                 pools={pools}
+                watchlist={watchlist}
+                onRefreshData={loadAllData}
+                onRemoveWatchlistTarget={handleRemoveWatchlistTarget}
                 onSelectPool={(p) =>
                   setInspectTarget({
                     region: p.region,
