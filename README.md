@@ -15,19 +15,9 @@ Instead of passive telemetry or slow ad-hoc dashboards, MindTheSpot acts as an *
 
 ---
 
-## 🚀 Live Production Environment
+## 🚀 Live Environment
 
-MindTheSpot is deployed in Google Cloud Argolis project `jcf-mindthespot` (region `europe-west4`):
-
-| Resource | Value / URI | Status |
-| :--- | :--- | :--- |
-| **Production URL** | [**`https://spot-8-232-252-55.sslip.io/`**](https://spot-8-232-252-55.sslip.io/) | **Active** (IAP Protected) |
-| **Global Load Balancer** | `8.232.252.55` (HTTPS :443, HTTP :80 301 Redirect) | **Active** (`EXTERNAL_MANAGED`) |
-| **Managed SSL Certificate** | Google-Managed (`spot-8-232-252-55.sslip.io`) | **Active** (Google Trust Services CA) |
-| **Authentication** | Google Cloud IAP (OAuth 2.0 via Google Workspace) | **Active** (Enforces Argolis Domain IAM) |
-| **Backend Compute** | Cloud Run Service: `mindthespot-app` | Private (`INTERNAL_LOAD_BALANCER`) |
-| **Scheduled Crawler** | Cloud Run Job: `mindthespot-crawler` (Weekly Cron) | **Active** (15-Worker Queue, $< 120\text{ MB}$ RAM) |
-| **Data Lakehouse** | BigQuery: `mindthespot_raw` & `mindthespot_analytics` | **Active** (4,057 Pools, 120k+ Preemption Points) |
+Available for testing: [https://spot-8-232-252-55.sslip.io/](https://spot-8-232-252-55.sslip.io/)
 
 ---
 
