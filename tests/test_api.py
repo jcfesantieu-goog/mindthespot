@@ -136,6 +136,17 @@ def test_watchlist_workflow(client):
     assert del_res.status_code == 200
     assert del_res.json()["status"] == "success"
 
+    # 6. Remove entire target via DELETE /api/v1/watchlist
+    del_target_res = client.delete(
+        "/api/v1/watchlist?region=us-east4&name=New+Team+Custom+Target"
+    )
+    assert del_target_res.status_code == 200
+    assert del_target_res.json()["status"] == "success"
+
+    # 7. Verify watchlist count returned to initial
+    get_res3 = client.get("/api/v1/watchlist")
+    assert len(get_res3.json()) == initial_count
+
 
 def test_anomalies_price_filter(client):
     # Test anomalies with price_filter

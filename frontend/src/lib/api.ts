@@ -122,6 +122,18 @@ export async function deleteWatchlistPool(
   if (!res.ok) throw new Error(`Failed to delete watchlist pool: ${res.statusText}`);
 }
 
+export async function deleteWatchlistTarget(
+  region: string,
+  name?: string | null
+): Promise<void> {
+  const params = new URLSearchParams({ region });
+  if (name) params.set("name", name);
+  const res = await fetch(`${BASE_URL}/v1/watchlist?${params.toString()}`, {
+    method: "DELETE",
+  });
+  if (!res.ok) throw new Error(`Failed to delete watchlist target: ${res.statusText}`);
+}
+
 export interface UserContextResponse {
   email: string;
   user_id?: string | null;

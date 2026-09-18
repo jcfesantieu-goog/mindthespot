@@ -1,4 +1,4 @@
-import React, { useState } from "react";
+import React, { useState, useEffect, useRef } from "react";
 import {
   AlertTriangle,
   TrendingUp,
@@ -12,29 +12,42 @@ import {
   ChevronUp,
   ArrowUpRight,
   ArrowDownRight,
+  Plus,
+  Settings2,
 } from "lucide-react";
-import { AnomalyItem, Severity } from "../types";
+import { AnomalyItem, Severity, WatchlistEntry } from "../types";
 import { AnomalyCard } from "./AnomalyCard";
+import { WatchlistModal } from "./WatchlistModal";
 import { cn } from "../lib/utils";
 
 interface SituationRoomProps {
   anomalies: AnomalyItem[];
   totalPoolsCount: number;
+  watchlist?: WatchlistEntry[];
   onInspect: (anomaly: AnomalyItem) => void;
   onViewPivots: (anomaly: AnomalyItem) => void;
+  onRefreshData?: () => void;
+  onRemoveWatchlistTarget?: (entry: WatchlistEntry) => void;
 }
 
 export const SituationRoom: React.FC<SituationRoomProps> = ({
   anomalies,
   totalPoolsCount,
+  watchlist = [],
   onInspect,
   onViewPivots,
+  onRefreshData,
+  onRemoveWatchlistTarget,
 }) => {
   const [severityFilter, setSeverityFilter] = useState<Severity | "ALL">("ALL");
   const [priceFilter, setPriceFilter] = useState<"ALL" | "HIKE" | "DROP">("ALL");
   const [regionFilter, setRegionFilter] = useState<string>("ALL");
-  const [watchlistOnly, setWatchlistOnly] = useState<boolean>(false);
+  const [selectedWatchlist, setSelectedWatchlist] = useState<string>("ALL");
+  const [watchlistMenuOpen, setWatchlistMenuOpen] = useState<boolean>(false);
+  const [watchlistModalOpen, setWatchlistModalOpen] = useState<boolean>(false);
+  const [watchlistModalAddMode, setWatchlistModalAddMode] = useState<boolean>(false);
   const [showMethodology, setShowMethodology] = useState<boolean>(false);
+  const dropdownRef = useRef<HTMLDivElement>(null);
 
   const criticalCount = anomalies.filter((a) => a.severity === "CRITICAL").length;
   const elevatedCount = anomalies.filter((a) => a.severity === "ELEVATED").length;
@@ -43,11 +56,43 @@ export const SituationRoom: React.FC<SituationRoomProps> = ({
 
   const regions = [
     "ALL",
-    ...Array.from(new Set(anomalies.map((a) => a.region))),
+    ...Array.from(new Set(anomalies.map((a) => a.region))).sort(),
   ];
 
+  // Close dropdown on outside click
+  useEffect(() => {
+    const handleClickOutside = (event: MouseEvent) => {
+      if (dropdownRef.current && !dropdownRef.current.contains(event.target as Node)) {
+        setWatchlistMenuOpen(false);
+      }
+    };
+    document.addEventListener("mousedown", handleClickOutside);
+    return () => document.removeEventListener("mousedown", handleClickOutside);
+  }, []);
+
+  const anomalyMatchesWatchlist = (a: AnomalyItem, entry: WatchlistEntry) => {
+    if (a.custom_label && entry.name && a.custom_label === entry.name) {
+      return true;
+    }
+    if (a.region !== entry.region) return false;
+    const zoneMatch = entry.zones.length === 0 || entry.zones.includes(a.zone);
+    const mtMatch = entry.machine_types.length === 0 || entry.machine_types.includes(a.machine_type);
+    return zoneMatch && mtMatch;
+  };
+
   const filtered = anomalies.filter((a) => {
-    if (watchlistOnly && !a.is_watchlist) return false;
+    if (selectedWatchlist === "WATCHLIST_ANY") {
+      if (!a.is_watchlist) return false;
+    } else if (selectedWatchlist !== "ALL") {
+      const entry = watchlist.find(
+        (w) => (w.name || `${w.region} Workload`) === selectedWatchlist
+      );
+      if (entry) {
+        if (!anomalyMatchesWatchlist(a, entry)) return false;
+      } else if (a.custom_label !== selectedWatchlist) {
+        return false;
+      }
+    }
     if (severityFilter !== "ALL" && a.severity !== severityFilter) return false;
     if (regionFilter !== "ALL" && a.region !== regionFilter) return false;
     if (priceFilter === "HIKE" && !a.price_hike_detected) return false;
@@ -300,19 +345,164 @@ export const SituationRoom: React.FC<SituationRoomProps> = ({
           </select>
         </div>
 
-        {/* Watchlist Toggle */}
-        <button
-          onClick={() => setWatchlistOnly(!watchlistOnly)}
-          className={cn(
-            "flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium font-mono transition-colors border",
-            watchlistOnly
-              ? "bg-amber-500/20 text-amber-300 border-amber-500/40"
-              : "bg-slate-950 text-slate-400 border-slate-800 hover:text-slate-200"
+        {/* Multi-Watchlist Dropdown */}
+        <div className="relative" ref={dropdownRef}>
+          <button
+            onClick={() => setWatchlistMenuOpen(!watchlistMenuOpen)}
+            className={cn(
+              "flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium font-mono transition-colors border",
+              selectedWatchlist !== "ALL"
+                ? "bg-amber-500/20 text-amber-300 border-amber-500/40"
+                : "bg-slate-950 text-slate-400 border-slate-800 hover:text-slate-200"
+            )}
+            title="Filter by Watchlists or Manage Workloads"
+          >
+            <Star className={cn("w-3.5 h-3.5", selectedWatchlist !== "ALL" && "fill-amber-400 text-amber-400")} />
+            <span>
+              {selectedWatchlist === "ALL"
+                ? `Watchlists (${watchlist.length})`
+                : selectedWatchlist === "WATCHLIST_ANY"
+                ? `All Watchlists (${anomalies.filter((a) => a.is_watchlist).length})`
+                : `${selectedWatchlist}`}
+            </span>
+            <ChevronDown className={cn("w-3 h-3 transition-transform", watchlistMenuOpen && "rotate-180")} />
+          </button>
+
+          {/* Watchlists Popover Menu */}
+          {watchlistMenuOpen && (
+            <div className="absolute right-0 mt-2 w-72 bg-slate-900 border border-slate-800 rounded-xl shadow-2xl z-50 p-2 font-mono text-xs animate-in fade-in zoom-in-95 duration-100">
+              <div className="px-2 py-1.5 flex items-center justify-between border-b border-slate-800 text-slate-400">
+                <span className="font-bold text-[11px] uppercase tracking-wider">Workload Watchlists</span>
+                <button
+                  onClick={() => {
+                    setWatchlistMenuOpen(false);
+                    setWatchlistModalAddMode(false);
+                    setWatchlistModalOpen(true);
+                  }}
+                  className="text-cyan-400 hover:text-cyan-300 text-[10px] flex items-center gap-1"
+                >
+                  <Settings2 className="w-3 h-3" />
+                  <span>Manage</span>
+                </button>
+              </div>
+
+              <div className="py-1 space-y-0.5 max-h-60 overflow-y-auto">
+                <button
+                  onClick={() => {
+                    setSelectedWatchlist("ALL");
+                    setWatchlistMenuOpen(false);
+                  }}
+                  className={cn(
+                    "w-full text-left px-2.5 py-1.5 rounded-lg flex items-center justify-between transition-colors",
+                    selectedWatchlist === "ALL"
+                      ? "bg-slate-800 text-cyan-300 font-semibold"
+                      : "text-slate-300 hover:bg-slate-800/60"
+                  )}
+                >
+                  <span>All Monitored Pools</span>
+                  <span className="text-[10px] text-slate-500">{totalPoolsCount}</span>
+                </button>
+
+                <button
+                  onClick={() => {
+                    setSelectedWatchlist("WATCHLIST_ANY");
+                    setWatchlistMenuOpen(false);
+                  }}
+                  className={cn(
+                    "w-full text-left px-2.5 py-1.5 rounded-lg flex items-center justify-between transition-colors",
+                    selectedWatchlist === "WATCHLIST_ANY"
+                      ? "bg-amber-500/20 text-amber-300 font-semibold"
+                      : "text-slate-300 hover:bg-slate-800/60"
+                  )}
+                >
+                  <div className="flex items-center gap-1.5">
+                    <Star className="w-3 h-3 text-amber-400 fill-amber-400" />
+                    <span>All Watchlists</span>
+                  </div>
+                  <span className="text-[10px] px-1.5 py-0.5 rounded bg-amber-500/20 text-amber-400 font-bold">
+                    {anomalies.filter((a) => a.is_watchlist).length}
+                  </span>
+                </button>
+
+                {watchlist.length > 0 && (
+                  <div className="pt-1.5 border-t border-slate-800/80 my-1">
+                    <div className="px-2 pb-1 text-[10px] text-slate-500 uppercase tracking-wider font-semibold">
+                      Named Watchlists
+                    </div>
+                    {watchlist.map((entry, idx) => {
+                      const entryLabel = entry.name || `${entry.region} Workload`;
+                      const count = anomalies.filter((a) => anomalyMatchesWatchlist(a, entry)).length;
+                      const hasCritical = anomalies.some(
+                        (a) => anomalyMatchesWatchlist(a, entry) && a.severity === "CRITICAL"
+                      );
+                      const isSelected = selectedWatchlist === entryLabel;
+
+                      return (
+                        <button
+                          key={`${entry.region}-${entry.name || idx}`}
+                          onClick={() => {
+                            setSelectedWatchlist(entryLabel);
+                            setWatchlistMenuOpen(false);
+                          }}
+                          className={cn(
+                            "w-full text-left px-2.5 py-1.5 rounded-lg flex items-center justify-between transition-colors",
+                            isSelected
+                              ? "bg-amber-500/20 text-amber-300 font-semibold"
+                              : "text-slate-300 hover:bg-slate-800/60"
+                          )}
+                        >
+                          <div className="flex items-center gap-1.5 truncate pr-2">
+                            <span className="truncate">{entryLabel}</span>
+                            <span className="text-[9px] px-1 rounded bg-slate-800 text-slate-400 shrink-0">
+                              {entry.region}
+                            </span>
+                          </div>
+                          <span
+                            className={cn(
+                              "text-[10px] px-1.5 py-0.5 rounded font-bold shrink-0",
+                              hasCritical
+                                ? "bg-rose-500/20 text-rose-400"
+                                : count > 0
+                                ? "bg-amber-500/20 text-amber-400"
+                                : "bg-slate-800 text-slate-500"
+                            )}
+                          >
+                            {count}
+                          </span>
+                        </button>
+                      );
+                    })}
+                  </div>
+                )}
+              </div>
+
+              <div className="pt-1.5 border-t border-slate-800 flex flex-col gap-1">
+                <button
+                  onClick={() => {
+                    setWatchlistMenuOpen(false);
+                    setWatchlistModalAddMode(true);
+                    setWatchlistModalOpen(true);
+                  }}
+                  className="w-full text-left px-2 py-1.5 rounded-lg text-amber-400 hover:bg-amber-500/10 transition-colors flex items-center gap-1.5 text-xs font-semibold"
+                >
+                  <Plus className="w-3.5 h-3.5" />
+                  <span>Add New Watchlist...</span>
+                </button>
+                <button
+                  onClick={() => {
+                    setWatchlistMenuOpen(false);
+                    setWatchlistModalAddMode(false);
+                    setWatchlistModalOpen(true);
+                  }}
+                  className="w-full text-left px-2 py-1.5 rounded-lg text-slate-400 hover:text-slate-200 hover:bg-slate-800 transition-colors flex items-center gap-1.5 text-xs"
+                >
+                  <Settings2 className="w-3.5 h-3.5" />
+                  <span>Manage All Watchlists...</span>
+                </button>
+              </div>
+            </div>
           )}
-        >
-          <Star className={cn("w-3.5 h-3.5", watchlistOnly && "fill-amber-400")} />
-          <span>Watchlist Only</span>
-        </button>
+        </div>
       </div>
 
       {/* Anomalies Cards Grid */}
@@ -337,6 +527,16 @@ export const SituationRoom: React.FC<SituationRoomProps> = ({
           ))}
         </div>
       )}
+
+      {/* Watchlist Management Modal */}
+      <WatchlistModal
+        isOpen={watchlistModalOpen}
+        onClose={() => setWatchlistModalOpen(false)}
+        watchlist={watchlist}
+        onRefreshData={onRefreshData}
+        onRemoveTarget={onRemoveWatchlistTarget}
+        initialAddMode={watchlistModalAddMode}
+      />
     </div>
   );
 };

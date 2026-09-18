@@ -8,6 +8,8 @@ Instead of passive telemetry or slow ad-hoc dashboards, MindTheSpot acts as an *
 * **Statistical Regime Shift Detection:** Benchmarks rolling 7-day preemption metrics against a 23-day historical baseline to detect statistical volatility spikes ($Z \ge 2.5\sigma$) and alerts on discrete spot price increases ($\ge 10\%$).
 * **Automated Pivot Recommendations:** Recommends stable sibling zones (same machine type, rate $\le 5\%$, $Z < 1.0$) or hardware-equivalent families (e.g. `c3d` $\leftrightarrow$ `c4d` $\leftrightarrow$ `c4a`/Axion $\leftrightarrow$ `n2d`) when an active pool becomes congested.
 * **Spot vs. On-Demand Arbitrage:** Compares real-time spot rates against public Google Cloud list prices stored in BigQuery, displaying live spot discounts ($30\%\text{--}80\%$) across instance cards, historical charts, and the pool explorer.
+* **Multi-Watchlist & Workload Management (ADR 003):** Create, track, and filter named workload watchlists (e.g. data pipelines, ML clusters) in the Situation Room with real-time critical/elevated anomaly counters, dual-layer client/server persistence, and modal management.
+* **Natural Deterministic Sorting:** Pool Explorer provides natural numeric sorting for machine types (e.g. `c4a-standard-2`, `4`, `16`, `32`) with multi-column tie-breakers for predictable pagination.
 * **Hybrid In-Memory Serving (ADR 002):** Pre-warms 4,000+ pools and 140,000+ telemetry points into RAM upon container startup, serving all dashboard traffic in $< 5\text{ ms}$ with zero BigQuery slot consumption.
 * **Zero-Trust Enterprise Edge:** Protected by **Google Cloud Identity-Aware Proxy (IAP)** and a **Global External HTTPS Load Balancer** with automated Google-managed SSL via `sslip.io`.
 
@@ -173,3 +175,4 @@ Triggered automatically on pushes to `main`:
 * **[issue.md](issue.md):** Incident post-mortems (OOM crawler fix, interval expansion, and synthetic fallback resolution).
 * **[ADR 001: Cloud IAP & Load Balancer](docs/adr/001-cloud-iap-load-balancer-sslip.md):** Architecture Decision Record detailing Domain Restricted Sharing (DRS), dynamic `sslip.io` DNS, and zero-trust authentication.
 * **[ADR 002: In-Memory Pre-Warming & Background Sync](docs/adr/002-hybrid-prewarm-background-sync-caching.md):** Architecture Decision Record detailing sub-5ms serving and BigQuery slot optimization.
+* **[ADR 003: Dual-Layer Watchlist & Fallback Pivots](docs/adr/003-dual-layer-watchlist-and-prioritized-fallback-pivots.md):** Architecture Decision Record detailing dual-layer client/server watchlist sync, 3-tier fallback matching, and multi-watchlist management.

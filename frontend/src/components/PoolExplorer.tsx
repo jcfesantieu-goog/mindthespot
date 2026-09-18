@@ -78,7 +78,10 @@ export const PoolExplorer: React.FC<PoolExplorerProps> = ({
     } else {
       setSortField(field);
       setSortOrder(
-        field === "spot_discount_pct" || field === "avg_7d_rate" || field === "avg_30d_rate"
+        field === "spot_discount_pct" ||
+        field === "avg_7d_rate" ||
+        field === "avg_30d_rate" ||
+        field === "severity"
           ? "desc"
           : "asc"
       );
@@ -104,25 +107,67 @@ export const PoolExplorer: React.FC<PoolExplorerProps> = ({
   });
 
   const sortedPools = [...filteredPools].sort((a, b) => {
-    if (!sortField) return 0;
+    if (!sortField) {
+      // Default: prioritize active watchlist, then severity (CRITICAL > ELEVATED > STABLE), then natural machine type & zone
+      if (a.is_watchlist !== b.is_watchlist) {
+        return a.is_watchlist ? -1 : 1;
+      }
+      const sevOrder: Record<string, number> = { CRITICAL: 3, ELEVATED: 2, STABLE: 1 };
+      const sevDiff = (sevOrder[b.severity] || 0) - (sevOrder[a.severity] || 0);
+      if (sevDiff !== 0) return sevDiff;
+      return (
+        a.machine_type.localeCompare(b.machine_type, undefined, { numeric: true }) ||
+        a.region.localeCompare(b.region) ||
+        a.zone.localeCompare(b.zone)
+      );
+    }
+
     let comparison = 0;
     if (sortField === "machine_type") {
-      comparison = a.machine_type.localeCompare(b.machine_type);
+      comparison =
+        a.machine_type.localeCompare(b.machine_type, undefined, { numeric: true }) ||
+        a.region.localeCompare(b.region) ||
+        a.zone.localeCompare(b.zone);
     } else if (sortField === "region") {
-      comparison = a.region.localeCompare(b.region);
+      comparison =
+        a.region.localeCompare(b.region) ||
+        a.zone.localeCompare(b.zone) ||
+        a.machine_type.localeCompare(b.machine_type, undefined, { numeric: true });
     } else if (sortField === "family") {
-      comparison = a.family.localeCompare(b.family);
+      comparison =
+        a.family.localeCompare(b.family) ||
+        a.machine_type.localeCompare(b.machine_type, undefined, { numeric: true }) ||
+        a.region.localeCompare(b.region) ||
+        a.zone.localeCompare(b.zone);
     } else if (sortField === "avg_7d_rate") {
-      comparison = a.avg_7d_rate - b.avg_7d_rate;
+      comparison =
+        a.avg_7d_rate - b.avg_7d_rate ||
+        a.machine_type.localeCompare(b.machine_type, undefined, { numeric: true }) ||
+        a.zone.localeCompare(b.zone);
     } else if (sortField === "avg_30d_rate") {
-      comparison = a.avg_30d_rate - b.avg_30d_rate;
+      comparison =
+        a.avg_30d_rate - b.avg_30d_rate ||
+        a.machine_type.localeCompare(b.machine_type, undefined, { numeric: true }) ||
+        a.zone.localeCompare(b.zone);
     } else if (sortField === "hourly_price") {
-      comparison = a.hourly_price - b.hourly_price;
+      comparison =
+        a.hourly_price - b.hourly_price ||
+        a.machine_type.localeCompare(b.machine_type, undefined, { numeric: true }) ||
+        a.zone.localeCompare(b.zone);
     } else if (sortField === "spot_discount_pct") {
-      comparison = (a.spot_discount_pct ?? 0) - (b.spot_discount_pct ?? 0);
+      const discA = a.spot_discount_pct ?? -1;
+      const discB = b.spot_discount_pct ?? -1;
+      comparison =
+        discA - discB ||
+        a.machine_type.localeCompare(b.machine_type, undefined, { numeric: true }) ||
+        a.zone.localeCompare(b.zone);
     } else if (sortField === "severity") {
-      const order = { CRITICAL: 3, ELEVATED: 2, STABLE: 1 };
-      comparison = (order[a.severity] || 0) - (order[b.severity] || 0);
+      const order: Record<string, number> = { CRITICAL: 3, ELEVATED: 2, STABLE: 1 };
+      comparison =
+        (order[a.severity] || 0) - (order[b.severity] || 0) ||
+        a.avg_7d_rate - b.avg_7d_rate ||
+        a.machine_type.localeCompare(b.machine_type, undefined, { numeric: true }) ||
+        a.zone.localeCompare(b.zone);
     }
     return sortOrder === "asc" ? comparison : -comparison;
   });
@@ -211,74 +256,114 @@ export const PoolExplorer: React.FC<PoolExplorerProps> = ({
               <tr>
                 <th
                   onClick={() => handleSort("machine_type")}
-                  className="py-3 px-4 cursor-pointer hover:text-cyan-300 transition-colors select-none"
+                  className={cn(
+                    "py-3 px-4 cursor-pointer hover:text-cyan-300 transition-colors select-none",
+                    sortField === "machine_type" && "text-cyan-400 font-bold"
+                  )}
                 >
                   <div className="flex items-center gap-1">
                     <span>Pool / Machine Type</span>
-                    {sortField === "machine_type" && (sortOrder === "asc" ? "▲" : "▼")}
+                    {sortField === "machine_type" && (
+                      <span className="text-cyan-400 font-mono text-xs">{sortOrder === "asc" ? "▲" : "▼"}</span>
+                    )}
                   </div>
                 </th>
                 <th
                   onClick={() => handleSort("region")}
-                  className="py-3 px-4 cursor-pointer hover:text-cyan-300 transition-colors select-none"
+                  className={cn(
+                    "py-3 px-4 cursor-pointer hover:text-cyan-300 transition-colors select-none",
+                    sortField === "region" && "text-cyan-400 font-bold"
+                  )}
                 >
                   <div className="flex items-center gap-1">
                     <span>Region / Zone</span>
-                    {sortField === "region" && (sortOrder === "asc" ? "▲" : "▼")}
+                    {sortField === "region" && (
+                      <span className="text-cyan-400 font-mono text-xs">{sortOrder === "asc" ? "▲" : "▼"}</span>
+                    )}
                   </div>
                 </th>
                 <th
                   onClick={() => handleSort("family")}
-                  className="py-3 px-4 cursor-pointer hover:text-cyan-300 transition-colors select-none"
+                  className={cn(
+                    "py-3 px-4 cursor-pointer hover:text-cyan-300 transition-colors select-none",
+                    sortField === "family" && "text-cyan-400 font-bold"
+                  )}
                 >
                   <div className="flex items-center gap-1">
                     <span>Family</span>
-                    {sortField === "family" && (sortOrder === "asc" ? "▲" : "▼")}
+                    {sortField === "family" && (
+                      <span className="text-cyan-400 font-mono text-xs">{sortOrder === "asc" ? "▲" : "▼"}</span>
+                    )}
                   </div>
                 </th>
                 <th
                   onClick={() => handleSort("avg_7d_rate")}
-                  className="py-3 px-4 cursor-pointer hover:text-cyan-300 transition-colors select-none"
+                  className={cn(
+                    "py-3 px-4 cursor-pointer hover:text-cyan-300 transition-colors select-none",
+                    sortField === "avg_7d_rate" && "text-cyan-400 font-bold"
+                  )}
                 >
                   <div className="flex items-center gap-1">
                     <span>7d Recent Avg</span>
-                    {sortField === "avg_7d_rate" && (sortOrder === "asc" ? "▲" : "▼")}
+                    {sortField === "avg_7d_rate" && (
+                      <span className="text-cyan-400 font-mono text-xs">{sortOrder === "asc" ? "▲" : "▼"}</span>
+                    )}
                   </div>
                 </th>
                 <th
                   onClick={() => handleSort("avg_30d_rate")}
-                  className="py-3 px-4 cursor-pointer hover:text-cyan-300 transition-colors select-none"
+                  className={cn(
+                    "py-3 px-4 cursor-pointer hover:text-cyan-300 transition-colors select-none",
+                    sortField === "avg_30d_rate" && "text-cyan-400 font-bold"
+                  )}
                 >
                   <div className="flex items-center gap-1">
                     <span>30d Avg</span>
-                    {sortField === "avg_30d_rate" && (sortOrder === "asc" ? "▲" : "▼")}
+                    {sortField === "avg_30d_rate" && (
+                      <span className="text-cyan-400 font-mono text-xs">{sortOrder === "asc" ? "▲" : "▼"}</span>
+                    )}
                   </div>
                 </th>
                 <th
                   onClick={() => handleSort("hourly_price")}
-                  className="py-3 px-4 cursor-pointer hover:text-cyan-300 transition-colors select-none"
+                  className={cn(
+                    "py-3 px-4 cursor-pointer hover:text-cyan-300 transition-colors select-none",
+                    sortField === "hourly_price" && "text-cyan-400 font-bold"
+                  )}
                 >
                   <div className="flex items-center gap-1">
                     <span>Hourly Spot</span>
-                    {sortField === "hourly_price" && (sortOrder === "asc" ? "▲" : "▼")}
+                    {sortField === "hourly_price" && (
+                      <span className="text-cyan-400 font-mono text-xs">{sortOrder === "asc" ? "▲" : "▼"}</span>
+                    )}
                   </div>
                 </th>
                 <th
                   onClick={() => handleSort("spot_discount_pct")}
-                  className="py-3 px-4 cursor-pointer hover:text-cyan-300 transition-colors select-none"
+                  className={cn(
+                    "py-3 px-4 cursor-pointer hover:text-cyan-300 transition-colors select-none",
+                    sortField === "spot_discount_pct" && "text-cyan-400 font-bold"
+                  )}
                 >
                   <div className="flex items-center gap-1">
                     <span>Spot Discount</span>
-                    {sortField === "spot_discount_pct" && (sortOrder === "asc" ? "▲" : "▼")}
+                    {sortField === "spot_discount_pct" && (
+                      <span className="text-cyan-400 font-mono text-xs">{sortOrder === "asc" ? "▲" : "▼"}</span>
+                    )}
                   </div>
                 </th>
                 <th
                   onClick={() => handleSort("severity")}
-                  className="py-3 px-4 cursor-pointer hover:text-cyan-300 transition-colors select-none"
+                  className={cn(
+                    "py-3 px-4 cursor-pointer hover:text-cyan-300 transition-colors select-none",
+                    sortField === "severity" && "text-cyan-400 font-bold"
+                  )}
                 >
                   <div className="flex items-center gap-1">
                     <span>Severity</span>
-                    {sortField === "severity" && (sortOrder === "asc" ? "▲" : "▼")}
+                    {sortField === "severity" && (
+                      <span className="text-cyan-400 font-mono text-xs">{sortOrder === "asc" ? "▲" : "▼"}</span>
+                    )}
                   </div>
                 </th>
                 <th className="py-3 px-4 text-right">Actions</th>

@@ -767,3 +767,36 @@ class SpotDataService:
     ) -> bool:
         """Remove a pool from watchlist and delete custom watchlist entries."""
         return self.toggle_watchlist_pool(region, zone, machine_type, is_watchlist=False)
+
+    def remove_watchlist_target(self, name: str | None, region: str) -> bool:
+        """Remove an entire named or regional watchlist entry and reset associated pools."""
+        with self._lock:
+            matched = [
+                e
+                for e in self.watchlist.watchlist
+                if (e.name == name or (not name and not e.name)) and e.region == region
+            ]
+            self.watchlist.watchlist = [
+                e
+                for e in self.watchlist.watchlist
+                if not ((e.name == name or (not name and not e.name)) and e.region == region)
+            ]
+            self._custom_watchlist_entries = [
+                e
+                for e in self._custom_watchlist_entries
+                if not ((e.name == name or (not name and not e.name)) and e.region == region)
+            ]
+            for entry in matched:
+                for _key, data in self._pool_cache.items():
+                    target = data.get("target")
+                    if target and target.region == entry.region:
+                        zone_ok = not entry.zones or target.zone in entry.zones
+                        mt_ok = not entry.machine_types or target.machine_type in entry.machine_types
+                        if zone_ok and mt_ok:
+                            target.is_watchlist = False
+                            target.custom_label = None
+
+            from mindthespot.api.cache import clear_cache
+
+            clear_cache()
+            return True

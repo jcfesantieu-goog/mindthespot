@@ -173,6 +173,25 @@ def remove_watchlist_entry(
     }
 
 
+@router.delete(
+    "/v1/watchlist",
+    response_model=dict,
+    tags=["Watchlist"],
+)
+def delete_watchlist_target(
+    region: str,
+    service: Annotated[SpotDataService, Depends(get_spot_service)],
+    name: str | None = None,
+) -> dict:
+    """Remove a whole named or regional watchlist entry and reset associated pools."""
+    success = service.remove_watchlist_target(name=name, region=region)
+    return {
+        "status": "success",
+        "message": f"Removed watchlist target {name or region}",
+        "success": success,
+    }
+
+
 @router.post(
     "/v1/watchlist/toggle",
     response_model=dict,

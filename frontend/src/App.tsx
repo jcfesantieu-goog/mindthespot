@@ -17,6 +17,7 @@ import {
   fetchWatchlist,
   toggleWatchlistPool,
   deleteWatchlistPool,
+  deleteWatchlistTarget,
   UserContextResponse,
 } from "./lib/api";
 import { SituationRoom } from "./components/SituationRoom";
@@ -151,14 +152,22 @@ export const App: React.FC = () => {
         for (const zone of entry.zones.length > 0 ? entry.zones : [`${entry.region}-a`]) {
           const key = `${entry.region}/${zone}/${mt}`;
           starred = starred.filter((k) => k !== key);
-          try {
-            await deleteWatchlistPool(entry.region, zone, mt);
-          } catch (e) {
-            // continue deleting remaining
-          }
         }
       }
       localStorage.setItem(storageKey, JSON.stringify(starred));
+
+      try {
+        await deleteWatchlistTarget(entry.region, entry.name);
+      } catch (e) {
+        // Fallback to pool-by-pool delete
+        for (const mt of entry.machine_types) {
+          for (const zone of entry.zones.length > 0 ? entry.zones : [`${entry.region}-a`]) {
+            try {
+              await deleteWatchlistPool(entry.region, zone, mt);
+            } catch {}
+          }
+        }
+      }
       await loadAllData();
     } catch (err) {
       console.error("Failed to remove watchlist target:", err);
@@ -312,6 +321,9 @@ export const App: React.FC = () => {
               <SituationRoom
                 anomalies={anomalies}
                 totalPoolsCount={pools.length}
+                watchlist={watchlist}
+                onRefreshData={loadAllData}
+                onRemoveWatchlistTarget={handleRemoveWatchlistTarget}
                 onInspect={(a) =>
                   setInspectTarget({
                     region: a.region,

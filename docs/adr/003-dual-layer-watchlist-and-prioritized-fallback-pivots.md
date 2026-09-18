@@ -63,9 +63,11 @@ We designed and implemented two core systems:
 
 #### Server Synchronization
 - Routes:
+  - `POST /api/v1/watchlist`: Adds custom workload watchlist entry.
   - `POST /api/v1/watchlist/toggle`: Accepts `{ region, zone, machine_type, is_watchlist, custom_label }`.
+  - `DELETE /api/v1/watchlist?region={region}&name={name}`: Purges an entire named workload watchlist target from memory and persistent store.
   - `DELETE /api/v1/watchlist/{region}/{zone}/{machine_type}`: Removes specific pool target.
-- Benefits: Server-side alerting and future webhook integrations can query watched pools independently of browser state.
+- Benefits: Server-side alerting, multi-watchlist filtering, and future webhook integrations can query and manage watched pools independently of browser state.
 
 ---
 

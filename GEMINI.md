@@ -54,6 +54,10 @@ mindthespot/
 4. **Hybrid In-Memory Pre-Warming (ADR 002)**:
    - On boot, `SpotDataService` loads all pools and curves into RAM dictionaries ($\approx 15\text{ MB}$).
    - API endpoints serve requests in $< 5\text{ ms}$ with zero BigQuery slot usage. Post-crawl refresh triggered via `POST /api/v1/cache/refresh`.
+5. **Multi-Watchlist Management & Natural Sorting (ADR 003)**:
+   - Dual-layer workload watchlists with localized storage (`mindthespot_watchlist_${email}`) and server sync (`POST /api/v1/watchlist`, `POST /api/v1/watchlist/toggle`, `DELETE /api/v1/watchlist`).
+   - Situation Room supports filtering by specific workload watchlists with real-time anomaly badges.
+   - Pool Explorer applies natural numeric sorting for machine types and hierarchical tie-breakers.
 
 ---
 
