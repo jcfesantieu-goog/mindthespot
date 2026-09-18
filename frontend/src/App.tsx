@@ -508,13 +508,6 @@ export const App: React.FC = () => {
           onClose={() => setPivotTarget(null)}
           poolKey={pivotTarget.poolKey}
           pivots={pivotTarget.pivots}
-          onInspectPool={(candidate) =>
-            setInspectTarget({
-              region: candidate.region,
-              zone: candidate.zone,
-              machineType: candidate.machine_type,
-            })
-          }
         />
       )}
 

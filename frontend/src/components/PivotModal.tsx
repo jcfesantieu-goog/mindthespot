@@ -3,22 +3,29 @@ import {
   X,
   Shuffle,
   ArrowRight,
-  Check,
-  Copy,
   Layers,
   MapPin,
   TrendingDown,
+  TrendingUp,
   DollarSign,
   Eye,
   ShieldCheck,
+  Activity,
+  Loader2,
 } from "lucide-react";
-import { PivotCandidate } from "../types";
+import { PivotCandidate, PoolHistory } from "../types";
+import { fetchPoolHistory } from "../lib/api";
+import { PreemptionChart } from "./PreemptionChart";
+import { PriceTimeline } from "./PriceTimeline";
 import {
   cn,
   formatPercent,
   formatPrice,
+  formatSignedPercent,
+  formatSignedZScore,
   getDiscountTier,
   getDiscountTierBadgeClass,
+  getDiscountTierLabel,
 } from "../lib/utils";
 
 interface PivotModalProps {
@@ -34,28 +41,47 @@ export const PivotModal: React.FC<PivotModalProps> = ({
   onClose,
   poolKey,
   pivots,
-  onInspectPool,
 }) => {
-  const [copiedIndex, setCopiedIndex] = useState<number | null>(null);
+  const [expandedKey, setExpandedKey] = useState<string | null>(null);
+  const [historyCache, setHistoryCache] = useState<Record<string, PoolHistory>>({});
+  const [loadingKey, setLoadingKey] = useState<string | null>(null);
+  const [errorMap, setErrorMap] = useState<Record<string, string>>({});
 
   if (!isOpen) return null;
 
-  const handleCopy = (pivot: PivotCandidate, index: number) => {
-    const snippet = `# Fallback pivot for ${pivot.origin_machine_type} (${pivot.origin_zone})
-gcloud compute instances create spot-worker-${pivot.pivot_family} \\
-    --zone=${pivot.pivot_zone} \\
-    --machine-type=${pivot.pivot_machine_type} \\
-    --provisioning-model=SPOT \\
-    --instance-termination-action=STOP`;
+  const handleToggleInspect = async (
+    candidateKey: string,
+    region: string,
+    zone: string,
+    machineType: string
+  ) => {
+    if (expandedKey === candidateKey) {
+      setExpandedKey(null);
+      return;
+    }
 
-    navigator.clipboard.writeText(snippet);
-    setCopiedIndex(index);
-    setTimeout(() => setCopiedIndex(null), 2000);
+    setExpandedKey(candidateKey);
+
+    if (!historyCache[candidateKey] && loadingKey !== candidateKey) {
+      setLoadingKey(candidateKey);
+      try {
+        const data = await fetchPoolHistory(region, zone, machineType);
+        setHistoryCache((prev) => ({ ...prev, [candidateKey]: data }));
+      } catch (err: unknown) {
+        const message = err instanceof Error ? err.message : "Failed to load telemetry";
+        setErrorMap((prev) => ({
+          ...prev,
+          [candidateKey]: message,
+        }));
+      } finally {
+        setLoadingKey(null);
+      }
+    }
   };
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/75 backdrop-blur-sm p-4 overflow-y-auto">
-      <div className="relative w-full max-w-4xl bg-slate-900 border border-slate-800 rounded-2xl shadow-2xl p-6 text-slate-100">
+      <div className="relative w-full max-w-5xl bg-slate-900 border border-slate-800 rounded-2xl shadow-2xl p-6 text-slate-100">
         {/* Header */}
         <div className="flex items-start justify-between pb-4 border-b border-slate-800 mb-6">
           <div className="flex items-center gap-3">
@@ -87,10 +113,15 @@ gcloud compute instances create spot-worker-${pivot.pivot_family} \\
             <p className="text-xs text-slate-500 mt-1">Try expanding to sibling regions or families in your custom watchlist.</p>
           </div>
         ) : (
-          <div className="space-y-4 max-h-[60vh] overflow-y-auto pr-1">
+          <div className="space-y-4 max-h-[75vh] overflow-y-auto pr-2">
             {pivots.map((pivot, idx) => {
+              const candidateKey = `${pivot.pivot_zone}-${pivot.pivot_machine_type}-${idx}`;
               const isSameZone = pivot.pivot_type === "SAME_ZONE_PIVOT";
               const isZonePivot = pivot.pivot_type === "ZONE_PIVOT";
+              const isExpanded = expandedKey === candidateKey;
+              const isLoading = loadingKey === candidateKey;
+              const history = historyCache[candidateKey];
+              const error = errorMap[candidateKey];
 
               const savingsPct =
                 pivot.cost_savings_pct !== undefined && pivot.cost_savings_pct !== null
@@ -101,9 +132,10 @@ gcloud compute instances create spot-worker-${pivot.pivot_family} \\
 
               return (
                 <div
-                  key={`${pivot.pivot_zone}-${pivot.pivot_machine_type}-${idx}`}
+                  key={candidateKey}
                   className="rounded-xl border border-slate-800 bg-slate-950/60 p-4 transition-all hover:border-slate-700"
                 >
+                  {/* Category & Reason Header */}
                   <div className="flex items-center justify-between flex-wrap gap-2 mb-3">
                     <div className="flex items-center gap-2 flex-wrap">
                       <span
@@ -132,41 +164,6 @@ gcloud compute instances create spot-worker-${pivot.pivot_family} \\
                       <span className="text-xs text-slate-400 font-mono">
                         {pivot.recommendation_reason}
                       </span>
-                    </div>
-
-                    <div className="flex items-center gap-2">
-                      {onInspectPool && (
-                        <button
-                          onClick={() =>
-                            onInspectPool({
-                              region: pivot.region,
-                              zone: pivot.pivot_zone,
-                              machine_type: pivot.pivot_machine_type,
-                            })
-                          }
-                          className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-xs font-mono font-medium text-cyan-300 hover:text-cyan-200 transition-colors border border-slate-700"
-                          title="Inspect 30-day preemption history for this recommended pivot"
-                        >
-                          <Eye className="w-3.5 h-3.5 text-cyan-400" />
-                          <span>Inspect History</span>
-                        </button>
-                      )}
-                      <button
-                        onClick={() => handleCopy(pivot, idx)}
-                        className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-xs font-mono font-medium text-slate-200 transition-colors border border-slate-700"
-                      >
-                        {copiedIndex === idx ? (
-                          <>
-                            <Check className="w-3.5 h-3.5 text-emerald-400" />
-                            <span>Copied Snippet!</span>
-                          </>
-                        ) : (
-                          <>
-                            <Copy className="w-3.5 h-3.5 text-slate-400" />
-                            <span>Copy gcloud</span>
-                          </>
-                        )}
-                      </button>
                     </div>
                   </div>
 
@@ -214,8 +211,30 @@ gcloud compute instances create spot-worker-${pivot.pivot_family} \\
 
                     {/* Pivot Pool */}
                     <div className="md:col-span-4 p-2.5 rounded bg-slate-950/80 border border-emerald-500/40">
-                      <div className="text-[10px] text-emerald-400 uppercase font-bold tracking-wider mb-1">
-                        Recommended Pivot
+                      <div className="flex items-center justify-between gap-1 mb-1.5">
+                        <div className="text-[10px] text-emerald-400 uppercase font-bold tracking-wider">
+                          Recommended Pivot
+                        </div>
+                        <button
+                          onClick={() =>
+                            handleToggleInspect(
+                              candidateKey,
+                              pivot.region,
+                              pivot.pivot_zone,
+                              pivot.pivot_machine_type
+                            )
+                          }
+                          className={cn(
+                            "flex items-center gap-1 px-2 py-0.5 rounded text-[10px] font-mono font-medium transition-colors border",
+                            isExpanded
+                              ? "bg-cyan-500/20 text-cyan-300 border-cyan-500/50 hover:bg-cyan-500/30"
+                              : "bg-slate-800 hover:bg-slate-700 text-cyan-300 hover:text-cyan-200 border-slate-700"
+                          )}
+                          title="Inspect 30-day preemption history and pricing curve directly in this view"
+                        >
+                          <Eye className="w-3 h-3 text-cyan-400" />
+                          <span>{isExpanded ? "Hide History" : "Inspect History"}</span>
+                        </button>
                       </div>
                       <div className="font-bold text-slate-100">{pivot.pivot_machine_type}</div>
                       <div className="text-emerald-300 text-[11px]">{pivot.pivot_zone}</div>
@@ -244,10 +263,151 @@ gcloud compute instances create spot-worker-${pivot.pivot_family} \\
                       </div>
                     </div>
                   </div>
+
+                  {/* Inline Telemetry Inspection */}
+                  {isExpanded && (
+                    <div className="mt-3 pt-3 border-t border-slate-800 space-y-3">
+                      <div className="flex items-center justify-between">
+                        <div className="flex items-center gap-2">
+                          <Activity className="w-4 h-4 text-cyan-400" />
+                          <span className="text-xs font-mono font-bold text-slate-200">
+                            Telemetry History: {pivot.pivot_machine_type} ({pivot.pivot_zone})
+                          </span>
+                        </div>
+                        {history?.severity && (
+                          <span
+                            className={cn(
+                              "px-2 py-0.5 rounded text-[10px] font-bold uppercase font-mono border",
+                              history.severity === "CRITICAL"
+                                ? "bg-red-500/20 text-red-400 border-red-500/40"
+                                : history.severity === "ELEVATED"
+                                ? "bg-amber-500/20 text-amber-400 border-amber-500/40"
+                                : "bg-emerald-500/20 text-emerald-400 border-emerald-500/40"
+                            )}
+                          >
+                            {history.severity}
+                          </span>
+                        )}
+                      </div>
+
+                      {isLoading ? (
+                        <div className="py-8 text-center text-slate-400 font-mono text-xs flex items-center justify-center gap-2 bg-slate-900/50 rounded-xl border border-slate-800">
+                          <Loader2 className="w-4 h-4 text-cyan-400 animate-spin" />
+                          <span>Fetching 30-day capacity history telemetry...</span>
+                        </div>
+                      ) : error ? (
+                        <div className="py-4 px-4 text-center text-red-400 font-mono text-xs bg-red-950/20 border border-red-500/30 rounded-lg">
+                          Failed to load telemetry: {error}
+                        </div>
+                      ) : history ? (
+                        <div className="space-y-3">
+                          {/* Quick Metrics Strip */}
+                          <div className="grid grid-cols-2 md:grid-cols-4 gap-2 font-mono text-xs">
+                            <div className="bg-slate-900/90 p-2.5 rounded-lg border border-slate-800">
+                              <div className="text-[10px] text-slate-400 mb-0.5">Recent 7d Rate</div>
+                              <div className="text-base font-bold text-slate-100">
+                                {formatPercent(history.recent_7d_rate)}
+                              </div>
+                              <div className="text-[10px] text-slate-500">
+                                Baseline: {formatPercent(history.baseline_rate)}
+                              </div>
+                            </div>
+
+                            <div className="bg-slate-900/90 p-2.5 rounded-lg border border-slate-800">
+                              <div className="text-[10px] text-slate-400 mb-0.5">Rate Delta (&Delta;)</div>
+                              <div
+                                className={cn(
+                                  "text-base font-bold",
+                                  history.rate_delta > 0.15
+                                    ? "text-red-400"
+                                    : history.rate_delta > 0.05
+                                    ? "text-amber-400"
+                                    : "text-emerald-400"
+                                )}
+                              >
+                                {formatSignedPercent(history.rate_delta)}
+                              </div>
+                              <div className="text-[10px] text-slate-500">vs 23d baseline</div>
+                            </div>
+
+                            <div className="bg-slate-900/90 p-2.5 rounded-lg border border-slate-800">
+                              <div className="text-[10px] text-slate-400 mb-0.5">Regime Z-Score</div>
+                              <div
+                                className={cn(
+                                  "text-base font-bold flex items-center gap-1",
+                                  history.z_score >= 2.5
+                                    ? "text-red-400"
+                                    : history.z_score >= 1.8
+                                    ? "text-amber-400"
+                                    : "text-emerald-400"
+                                )}
+                              >
+                                {history.z_score >= 0 ? (
+                                  <TrendingUp className="w-3.5 h-3.5" />
+                                ) : (
+                                  <TrendingDown className="w-3.5 h-3.5" />
+                                )}
+                                {formatSignedZScore(history.z_score)}
+                              </div>
+                              <div className="text-[10px] text-slate-500">
+                                {history.z_score >= 2.5
+                                  ? "Severe Congestion"
+                                  : history.z_score >= 1.8
+                                  ? "Elevated Risk"
+                                  : "Stable Baseline"}
+                              </div>
+                            </div>
+
+                            <div className="bg-slate-900/90 p-2.5 rounded-lg border border-slate-800">
+                              <div className="text-[10px] text-slate-400 mb-0.5 flex items-center justify-between">
+                                <span>Current Spot Price</span>
+                                {history.spot_discount_pct !== undefined && history.spot_discount_pct !== null && (
+                                  <span
+                                    className={cn(
+                                      "text-[10px] font-bold px-1 py-0.2 rounded border",
+                                      getDiscountTierBadgeClass(getDiscountTier(history.spot_discount_pct))
+                                    )}
+                                    title={
+                                      history.ondemand_hourly_price
+                                        ? `${history.spot_discount_pct.toFixed(1)}% savings vs on-demand (${formatPrice(history.ondemand_hourly_price)}) [${getDiscountTierLabel(getDiscountTier(history.spot_discount_pct))}]`
+                                        : `${history.spot_discount_pct.toFixed(1)}% discount`
+                                    }
+                                  >
+                                    -{history.spot_discount_pct.toFixed(0)}%
+                                  </span>
+                                )}
+                              </div>
+                              <div className="text-base font-bold text-emerald-400 flex items-center gap-0.5">
+                                <DollarSign className="w-3.5 h-3.5" />
+                                {formatPrice(history.current_hourly_price)}
+                              </div>
+                              <div className="text-[10px] text-slate-500 flex items-center justify-between">
+                                <span>Billed / hr</span>
+                                {history.ondemand_hourly_price !== undefined && history.ondemand_hourly_price !== null && (
+                                  <span className="text-slate-400">
+                                    List: {formatPrice(history.ondemand_hourly_price)}
+                                  </span>
+                                )}
+                              </div>
+                            </div>
+                          </div>
+
+                          {/* Charts */}
+                          <div className="space-y-3">
+                            <PreemptionChart rates={history.rates} />
+                            <PriceTimeline
+                              intervals={history.intervals}
+                              ondemandPrice={history.ondemand_hourly_price}
+                              discountPct={history.spot_discount_pct}
+                            />
+                          </div>
+                        </div>
+                      ) : null}
+                    </div>
+                  )}
                 </div>
               );
             })}
-
           </div>
         )}
 

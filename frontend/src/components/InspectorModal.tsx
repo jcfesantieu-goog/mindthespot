@@ -54,7 +54,7 @@ export const InspectorModal: React.FC<InspectorModalProps> = ({
   const isElevated = history?.severity === "ELEVATED";
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-sm p-4 overflow-y-auto">
+    <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/80 backdrop-blur-sm p-4 overflow-y-auto">
       <div className="relative w-full max-w-4xl bg-slate-900 border border-slate-800 rounded-2xl shadow-2xl p-6 text-slate-100">
         {/* Header */}
         <div className="flex items-start justify-between pb-4 border-b border-slate-800 mb-6">
