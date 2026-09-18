@@ -206,3 +206,35 @@ def test_statistical_edge_cases():
     assert short_metrics["severity"] == "STABLE"
     assert short_metrics["recent_7d_rate"] > 0
 
+
+def test_pivot_cost_delta_more_expensive_candidate():
+    origin = {
+        "region": "europe-west4",
+        "zone": "europe-west4-a",
+        "machine_type": "c4a-standard-16",
+        "family": "c4a",
+        "severity": "CRITICAL",
+        "recent_7d_rate": 0.45,
+        "hourly_price": 0.0917,
+    }
+    all_pools = [
+        {
+            "region": "europe-west4",
+            "zone": "europe-west4-a",
+            "machine_type": "c3d-standard-16",
+            "family": "c3d",
+            "severity": "STABLE",
+            "recent_7d_rate": 0.011,
+            "hourly_price": 0.4161,
+            "ondemand_price": 0.82,
+            "spot_discount_pct": 49.2,
+        }
+    ]
+    pivots = find_pivot_candidates_for_pool(origin, all_pools)
+    assert len(pivots) == 1
+    p = pivots[0]
+    assert p.cost_difference == -0.3244
+    assert p.cost_savings_pct == -353.8
+    assert p.pivot_discount_pct == 49.2
+
+

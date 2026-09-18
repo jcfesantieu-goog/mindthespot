@@ -13,7 +13,13 @@ import {
   ShieldCheck,
 } from "lucide-react";
 import { PivotCandidate } from "../types";
-import { cn, formatPercent, formatPrice } from "../lib/utils";
+import {
+  cn,
+  formatPercent,
+  formatPrice,
+  getDiscountTier,
+  getDiscountTierBadgeClass,
+} from "../lib/utils";
 
 interface PivotModalProps {
   isOpen: boolean;
@@ -189,16 +195,16 @@ gcloud compute instances create spot-worker-${pivot.pivot_family} \\
                         <DollarSign className="w-3.5 h-3.5 text-emerald-400" />
                         {pivot.cost_difference >= 0 ? (
                           <span className="text-emerald-400 font-bold">
-                            Save {formatPrice(pivot.cost_difference)}/hr{" "}
+                            Save {formatPrice(pivot.cost_difference)}{" "}
                             <span className="text-emerald-300 font-semibold">
-                              ({savingsPct > 0 ? `+${savingsPct}%` : `${savingsPct}%`})
+                              (-{Math.abs(savingsPct)}% cost)
                             </span>
                           </span>
                         ) : (
                           <span className="text-slate-300 font-semibold">
-                            +{formatPrice(Math.abs(pivot.cost_difference))}/hr{" "}
+                            +{formatPrice(Math.abs(pivot.cost_difference))}{" "}
                             <span className="text-rose-400">
-                              ({savingsPct > 0 ? `+${savingsPct}%` : `${savingsPct}%`})
+                              (+{Math.abs(savingsPct)}% cost)
                             </span>
                           </span>
                         )}
@@ -221,14 +227,17 @@ gcloud compute instances create spot-worker-${pivot.pivot_family} \\
                           <span>{formatPrice(pivot.pivot_hourly_price)}</span>
                           {pivot.pivot_discount_pct !== undefined && pivot.pivot_discount_pct !== null && (
                             <span
-                              className="text-[10px] text-emerald-400 font-bold bg-emerald-950/70 px-1.5 py-0.5 rounded border border-emerald-800/40"
+                              className={cn(
+                                "text-[10px] font-bold px-1.5 py-0.5 rounded border",
+                                getDiscountTierBadgeClass(getDiscountTier(pivot.pivot_discount_pct))
+                              )}
                               title={
                                 pivot.pivot_ondemand_price
-                                  ? `${pivot.pivot_discount_pct.toFixed(1)}% savings vs on-demand (${formatPrice(pivot.pivot_ondemand_price)})`
+                                  ? `${pivot.pivot_discount_pct.toFixed(1)}% savings vs on-demand list price (${formatPrice(pivot.pivot_ondemand_price)})`
                                   : `${pivot.pivot_discount_pct.toFixed(1)}% discount`
                               }
                             >
-                              -{pivot.pivot_discount_pct.toFixed(1)}%
+                              {pivot.pivot_discount_pct.toFixed(1)}% off on-demand
                             </span>
                           )}
                         </div>
@@ -238,6 +247,7 @@ gcloud compute instances create spot-worker-${pivot.pivot_family} \\
                 </div>
               );
             })}
+
           </div>
         )}
 

@@ -10,7 +10,16 @@ import {
   HelpCircle,
 } from "lucide-react";
 import { AnomalyItem } from "../types";
-import { cn, formatPercent, formatPrice, formatSignedPercent, formatSignedZScore } from "../lib/utils";
+import {
+  cn,
+  formatPercent,
+  formatPrice,
+  formatSignedPercent,
+  formatSignedZScore,
+  getDiscountTier,
+  getDiscountTierBadgeClass,
+  getDiscountTierLabel,
+} from "../lib/utils";
 
 
 interface AnomalyCardProps {
@@ -142,10 +151,13 @@ export const AnomalyCard: React.FC<AnomalyCardProps> = ({
         <div className="flex items-center gap-1.5">
           {anomaly.spot_discount_pct !== undefined && anomaly.spot_discount_pct !== null && (
             <span
-              className="text-[11px] text-emerald-400 font-bold bg-emerald-950/70 px-2 py-0.5 rounded border border-emerald-800/50"
+              className={cn(
+                "text-[11px] font-bold px-2 py-0.5 rounded border",
+                getDiscountTierBadgeClass(getDiscountTier(anomaly.spot_discount_pct))
+              )}
               title={
                 anomaly.ondemand_hourly_price
-                  ? `${anomaly.spot_discount_pct.toFixed(1)}% savings compared to public on-demand (${formatPrice(anomaly.ondemand_hourly_price)})`
+                  ? `${anomaly.spot_discount_pct.toFixed(1)}% savings compared to public on-demand (${formatPrice(anomaly.ondemand_hourly_price)}) [${getDiscountTierLabel(getDiscountTier(anomaly.spot_discount_pct))}]`
                   : `${anomaly.spot_discount_pct.toFixed(1)}% discount`
               }
             >

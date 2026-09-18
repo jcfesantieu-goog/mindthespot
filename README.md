@@ -88,10 +88,14 @@ flowchart TD
   * `ELEVATED`: $1.5\sigma \le Z < 2.5\sigma$ OR $7.5\% \le \Delta < 15.0\%$.
   * `STABLE`: Nominal operating variance.
 
-### 2. On-Demand vs. Spot Arbitrage
+### 2. On-Demand vs. Spot Arbitrage & 3-Tier Classification
 * Raw compute list prices are stored in `mindthespot_raw.on_demand_pricing`.
 * Spot discount percentages are calculated in real time:
   $$\text{Discount \%} = \frac{\text{OnDemand Hourly} - \text{Current Spot Hourly}}{\text{OnDemand Hourly}} \times 100$$
+* **FinOps 3-Tier Classification & CUD Arbitrage**:
+  * **Deep Arbitrage (`> 80%`)**: Top ~10% highest spot savings (avg 85.6%). Ideal for batch processing and fault-tolerant workloads where compute cost is cut by $5\times\text{--}10\times$.
+  * **Standard Spot (`50% -- 80%`)**: ~63% of the fleet (avg 66.1%). Healthy arbitrage comfortably outperforming standard 1-year and 3-year Committed Use Discounts.
+  * **Low Discount (`< 50%`)**: ~27% of the fleet (avg 41.8%). Sub-optimal risk/reward ratio because standard 1-3yr CUDs offer 37%–57% savings with **0% preemption risk**.
 
 ### 3. Contiguous Calendar Day Expansion
 * The Google Compute Engine Capacity History API compresses contiguous days with identical rates into $[startTime, endTime)$ intervals.
@@ -161,7 +165,7 @@ All cloud infrastructure is declared in `terraform/` and deployed through contin
 
 ### GitOps Pipeline (`.github/workflows/gitops.yml`)
 Triggered automatically on pushes to `main`:
-1. **Pre-flight Quality Gates**: Runs `ruff check .`, `pytest tests/` (59 tests), and `npm run build`.
+1. **Pre-flight Quality Gates**: Runs `ruff check .`, `pytest tests/` (60 tests), and `npm run build`.
 2. **Workload Identity Federation**: Authenticates to Google Cloud via keyless OIDC tokens.
 3. **Container Build**: Compiles multi-stage Docker image and pushes to Google Artifact Registry.
 4. **Terraform Apply**: Applies declarative changes with remote state stored in `gs://jcf-mindthespot-tfstate`.

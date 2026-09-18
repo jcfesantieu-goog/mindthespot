@@ -4,7 +4,16 @@ import { PoolHistory } from "../types";
 import { fetchPoolHistory } from "../lib/api";
 import { PreemptionChart } from "./PreemptionChart";
 import { PriceTimeline } from "./PriceTimeline";
-import { cn, formatPercent, formatPrice, formatSignedPercent, formatSignedZScore } from "../lib/utils";
+import {
+  cn,
+  formatPercent,
+  formatPrice,
+  formatSignedPercent,
+  formatSignedZScore,
+  getDiscountTier,
+  getDiscountTierBadgeClass,
+  getDiscountTierLabel,
+} from "../lib/utils";
 
 
 interface InspectorModalProps {
@@ -160,7 +169,17 @@ export const InspectorModal: React.FC<InspectorModalProps> = ({
                 <div className="text-slate-400 mb-1 flex items-center justify-between">
                   <span>Current Spot Price</span>
                   {history.spot_discount_pct !== undefined && history.spot_discount_pct !== null && (
-                    <span className="text-[10px] text-emerald-400 font-bold bg-emerald-950/70 px-1.5 py-0.5 rounded border border-emerald-800/40">
+                    <span
+                      className={cn(
+                        "text-[10px] font-bold px-1.5 py-0.5 rounded border",
+                        getDiscountTierBadgeClass(getDiscountTier(history.spot_discount_pct))
+                      )}
+                      title={
+                        history.ondemand_hourly_price
+                          ? `${history.spot_discount_pct.toFixed(1)}% savings vs on-demand (${formatPrice(history.ondemand_hourly_price)}) [${getDiscountTierLabel(getDiscountTier(history.spot_discount_pct))}]`
+                          : `${history.spot_discount_pct.toFixed(1)}% discount`
+                      }
+                    >
                       -{history.spot_discount_pct.toFixed(1)}%
                     </span>
                   )}

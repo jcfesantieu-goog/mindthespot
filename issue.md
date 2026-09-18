@@ -396,8 +396,47 @@ Added `test_cache_status_endpoint` and `test_cache_refresh_endpoint` in `tests/t
    INFO:     Application startup complete.
    ```
 4. **Live Dashboard Verification**:
-   - Live URL `https://spot-8-232-252-55.sslip.io` serves 4,057 pools, 109 critical shifts, and 65 elevated risks with the green **BigQuery Live** badge active.
+    - Live URL `https://spot-8-232-252-55.sslip.io` serves 4,057 pools, 109 critical shifts, and 65 elevated risks with the green **BigQuery Live** badge active.
 
+---
 
+# Issue #5: Pricing Timeline Scale Squashing, Fallback Pivot Percentage & Unit Bug, and 3-Tier Discount Classification
 
+## Status
+**RESOLVED** (2026-09-18)
 
+## Incident Overview & Reported Bugs
+During visual inspection of `c4a-standard-48` and `c4a-standard-16` pools in `europe-west4`, three UI and UX anomalies were identified:
+1. **Historical Spot Pricing Timeline Squashed**:
+   - The timeline Y-axis domain forced `maxPrice = Math.max(...prices, ondemandPrice)`. Because the on-demand price is up to $10\times$ higher than the spot price (e.g. $2.3802/hr vs $0.2751/hr), the spot curve was squashed into a flat line near the bottom of the chart, obscuring $10\%\text{--}25\%$ spot price hikes and drops.
+2. **Fallback Pivot Price Change Percentage & Duplicate Unit**:
+   - For a congested pool ($0.0917/hr) compared to a more expensive pivot candidate ($0.4161/hr), the UI rendered `+$0.3244/hr/hr (-353.7%)`.
+   - Duplicate `/hr`: `formatPrice()` already returned `"$0.3244/hr"`, so appending `/hr` caused `/hr/hr`.
+   - Inverted percentage sign: An increase of +$0.3244/hr represents a **+353.8% cost increase**, but displayed a negative `(-353.7%)`.
+3. **Spot Discount Ratio FinOps 3-Tier Integration**:
+   - Spot discount ratio is a primary FinOps decision metric. Need 3 distinct classification tiers (`Deep >80%`, `Standard 50%-80%`, `Low <50%`) with visual color coding and filtering.
+
+## Root-Cause Analysis & Fix
+
+### 1. Dynamic Spot Volatility Zooming (`PriceTimeline.tsx`)
+- Replaced static ceiling Y-axis scaling with a dedicated spot-focused domain:
+  $$\text{Domain} = [\max(0, \text{minSpot} - \text{pad}), \text{maxSpot} + \text{pad}]$$
+- Added a top-bar scale toggle: `[Focus Spot]` (default) vs `[Full Scale]` (scaled to on-demand ceiling).
+- Kept the on-demand list price cleanly referenced in the header and in tooltips.
+
+### 2. Sign-Consistent Price Change & Clean Formatting (`PivotModal.tsx`)
+- Removed duplicate `/hr` from templates.
+- Reconciled delta and percentage signs:
+  - Cheaper pivot: `Save $0.0300/hr (-12.0% cost)` in emerald.
+  - More expensive pivot: `+$0.3244/hr (+353.8% cost)` in rose.
+- Labeled the recommended pivot's discount badge explicitly as `X% off on-demand` with tier badge color to eliminate confusion with transition deltas.
+
+### 3. 3-Tier Spot Discount Ratio & CUD Arbitrage (`utils.ts`, `PoolExplorer.tsx`)
+- **FinOps Justification**: In GCP, 1-yr and 3-yr CUDs give 37%–57% savings with 0% preemption risk. Spot at `<50%` is sub-optimal; `50%-80%` is healthy standard; `>80%` is peak arbitrage.
+- Added `getDiscountTier()`, `getDiscountTierLabel()`, and `getDiscountTierBadgeClass()`.
+- Added Discount Tier dropdown filter to `PoolExplorer.tsx` and color-coded badges in table rows, anomaly cards, and inspector modals.
+
+## Verification
+- Added unit test `test_pivot_cost_delta_more_expensive_candidate` in `tests/test_analytics.py`.
+- 60/60 tests passing in 4.49s.
+- TypeScript compiled with 0 errors and production bundle built successfully.

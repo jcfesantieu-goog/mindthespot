@@ -1,7 +1,15 @@
 import React, { useState } from "react";
 import { Search, Star, Shuffle, Eye, ChevronLeft, ChevronRight } from "lucide-react";
 import { PoolSummary } from "../types";
-import { cn, formatPercent, formatPrice } from "../lib/utils";
+import {
+  cn,
+  formatPercent,
+  formatPrice,
+  DiscountTier,
+  getDiscountTier,
+  getDiscountTierBadgeClass,
+  getDiscountTierLabel,
+} from "../lib/utils";
 
 interface PoolExplorerProps {
   pools: PoolSummary[];
@@ -16,9 +24,10 @@ export const PoolExplorer: React.FC<PoolExplorerProps> = ({
   onViewPivots,
   onToggleWatchlist,
 }) => {
-  const [searchTerm, setSearchTerm] = useState("");
+  const [searchTerm, setSearchTerm] = useState<string>("");
   const [selectedRegion, setSelectedRegion] = useState<string>("ALL");
   const [selectedFamily, setSelectedFamily] = useState<string>("ALL");
+  const [selectedDiscountTier, setSelectedDiscountTier] = useState<DiscountTier | "ALL">("ALL");
   const [watchlistOnly, setWatchlistOnly] = useState<boolean>(false);
   const [currentPage, setCurrentPage] = useState<number>(1);
   const [pageSize, setPageSize] = useState<number>(50);
@@ -93,6 +102,10 @@ export const PoolExplorer: React.FC<PoolExplorerProps> = ({
     if (watchlistOnly && !p.is_watchlist) return false;
     if (selectedRegion !== "ALL" && p.region !== selectedRegion) return false;
     if (selectedFamily !== "ALL" && p.family !== selectedFamily) return false;
+    if (selectedDiscountTier !== "ALL") {
+      const tier = getDiscountTier(p.spot_discount_pct);
+      if (tier !== selectedDiscountTier) return false;
+    }
     if (searchTerm) {
       const q = searchTerm.toLowerCase();
       return (
@@ -209,6 +222,24 @@ export const PoolExplorer: React.FC<PoolExplorerProps> = ({
                 {r === "ALL" ? `All Regions (${regions.length - 1})` : r}
               </option>
             ))}
+          </select>
+        </div>
+
+        {/* Discount Tier Filter */}
+        <div className="flex items-center gap-2">
+          <label className="text-xs text-slate-400 font-mono">Discount:</label>
+          <select
+            value={selectedDiscountTier}
+            onChange={(e) => {
+              setSelectedDiscountTier(e.target.value as DiscountTier | "ALL");
+              setCurrentPage(1);
+            }}
+            className="bg-slate-950 border border-slate-800 rounded-lg px-3 py-2 text-xs font-mono text-slate-200 focus:outline-none focus:border-cyan-500"
+          >
+            <option value="ALL">All Discounts</option>
+            <option value="great">Deep (&gt;80%)</option>
+            <option value="good">Standard (50%–80%)</option>
+            <option value="low">Low (&lt;50%)</option>
           </select>
         </div>
 
@@ -469,10 +500,13 @@ export const PoolExplorer: React.FC<PoolExplorerProps> = ({
                       <td className="py-3 px-4">
                         {pool.spot_discount_pct !== undefined && pool.spot_discount_pct !== null ? (
                           <span
-                            className="inline-flex items-center text-[11px] text-emerald-400 font-bold bg-emerald-950/70 px-2 py-0.5 rounded border border-emerald-800/40 font-mono"
+                            className={cn(
+                              "inline-flex items-center text-[11px] font-bold px-2 py-0.5 rounded border font-mono",
+                              getDiscountTierBadgeClass(getDiscountTier(pool.spot_discount_pct))
+                            )}
                             title={
                               pool.ondemand_hourly_price
-                                ? `${pool.spot_discount_pct.toFixed(1)}% savings vs on-demand list price (${formatPrice(pool.ondemand_hourly_price)})`
+                                ? `${pool.spot_discount_pct.toFixed(1)}% savings vs on-demand list price (${formatPrice(pool.ondemand_hourly_price)}) [${getDiscountTierLabel(getDiscountTier(pool.spot_discount_pct))}]`
                                 : `${pool.spot_discount_pct.toFixed(1)}% discount`
                             }
                           >
