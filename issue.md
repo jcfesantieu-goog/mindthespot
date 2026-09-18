@@ -281,5 +281,123 @@ On the MindTheSpot Situation Room dashboard, two major statistical anomalies wer
   - **65 Elevated Risk Pools** (22 with price hikes, 43 preemption shifts)
   - **1,791 Price Hikes** and **2,162 Stable Pools**
 
+---
+
+# Issue #4: Cloud Run Asynchronous Pre-Warm CPU Starvation, Silent Logging, and Missing UI Provenance Telemetry
+
+## Status
+**RESOLVED** (2026-09-18)
+
+## Severity
+**High** (Production Telemetry Serving & Operational Visibility)
+
+## Affects
+- `terraform/cloud_run.tf`
+- `mindthespot/api/app.py`
+- `mindthespot/api/routes.py`
+- `mindthespot/api/service.py`
+- `frontend/src/App.tsx`
+- `frontend/src/lib/api.ts`
+- `tests/test_api.py`
+
+---
+
+## 1. Incident Description & Observation
+On the live MindTheSpot dashboard deployed to Google Cloud Argolis (`https://spot-8-232-252-55.sslip.io`):
+1. **Fallback Mock Dataset Served**: The Situation Room displayed 6,240 pools, 10 critical shifts, 0 elevated risks, 15 hikes, and 15 drops—matching the exact signature of the synthetic mock generator rather than the 4,057 pools, 109 critical shifts, and 65 elevated risks in BigQuery.
+2. **Missing Operational Visibility**: Cloud Logging showed zero log output from `mindthespot.api.service` or `mindthespot.api.app` on container startup, making it impossible to determine why BigQuery data was not being loaded.
+3. **Static UI Badge**: The frontend displayed a static, hardcoded badge (`Live Engine (15m Cache)`) with no provenance indicator and no UI mechanism to force-refresh the cache from BigQuery.
+
+---
+
+## 2. Root Cause Analysis
+
+### A. Cloud Run CPU Throttling Model & Background Daemon Starvation
+On Cloud Run with CPU throttling (the default configuration where `cpu_idle = true`), container CPU is throttled to near 0% whenever no active HTTP request is being processed.
+
+When `SYNC_PREWARM` was omitted from `terraform/cloud_run.tf`, `SpotDataService` evaluated `sync_prewarm = False`:
+1. The container immediately populated the 6,240 synthetic mock pools.
+2. The FastAPI lifespan startup handler returned immediately and startup probes succeeded.
+3. A background daemon thread (`threading.Thread`) was spawned to query BigQuery and load rows.
+4. **The Bottleneck**: As soon as startup completed, Cloud Run throttled CPU allocation to near 0%. The background thread was starved of CPU cycles and suspended mid-execution before it could download and parse the 120,000+ BigQuery rows, leaving the container serving synthetic fallback data indefinitely.
+
+### B. Suppressed Python Standard Logging
+Python's standard logging module defaults to level `WARNING` when unconfigured. Because `logging.basicConfig()` was never called in `app.py` or `cli.py`, all `logger.info()` statements across the application were silently discarded and never forwarded to Cloud Logging.
+
+### C. Missing Cache Provenance & Invalidation Telemetry
+The React frontend never called `GET /api/v1/cache/status`. The dashboard top bar displayed a static badge with no provenance indicator (`bigquery` vs `synthetic`), leaving operators with no indication of cache source and no ability to trigger a live re-warm.
+
+---
+
+## 3. Architecture & Fix Implementation
+
+### Pillar 1: Synchronous Startup Pre-Warming (`SYNC_PREWARM = "true"`)
+Added `SYNC_PREWARM = "true"` to container environment variables in `terraform/cloud_run.tf`:
+- Cloud Run allocates 100% CPU during container startup until startup probes pass.
+- Setting `SYNC_PREWARM = "true"` instructs FastAPI's `lifespan` handler to block startup probes until `warm_cache_from_bigquery()` finishes.
+- The entire pre-warm completes in **8.3 seconds** (well within Cloud Run's 240s startup timeout), guaranteeing that every live request is served exclusively from authentic BigQuery data.
+
+### Pillar 2: Structured Cloud Logging Configuration
+Configured standard logging in `mindthespot/api/app.py`:
+```python
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
+)
+```
+In `lifespan`, log clear success/failure diagnostics:
+```python
+logger.info(
+    "BigQuery cache pre-warm succeeded: source=%s, pools=%d, prices=%d, preemptions=%d",
+    status.source,
+    status.total_pools_cached,
+    status.total_price_intervals,
+    status.total_preemption_points,
+)
+```
+
+### Pillar 3: Cold-Start Optimization
+In `mindthespot/api/routes.py`, updated `get_spot_service()` to instantiate `SpotDataService(initialize_synthetic=not sync_prewarm)`. When `SYNC_PREWARM` is enabled, synthetic dataset generation is bypassed entirely, avoiding redundant memory allocation.
+
+### Pillar 4: Interactive React UI Cache Provenance Badge
+In `frontend/src/App.tsx` and `frontend/src/lib/api.ts`:
+- Replaced the static header label with a dynamic **Cache Provenance Badge**:
+  - 🟢 **BigQuery Live** (`4,057 pools` • Synced `HH:MM:SS`)
+  - 🟡 **Syncing BigQuery...** (active refresh)
+  - 🔵 **Synthetic Mock** (development fallback)
+- Clicking the badge opens a telemetry popover detailing:
+  - Cache source (`bigquery` vs `synthetic`)
+  - Cached pools count (`4,057`)
+  - Price intervals count (`20,589`)
+  - Preemption points count (`121,710`)
+  - Last synced timestamp
+  - **Force Refresh from BigQuery** action invoking `POST /api/v1/cache/refresh`.
+
+### Pillar 5: Hermetic Unit Tests
+Added `test_cache_status_endpoint` and `test_cache_refresh_endpoint` in `tests/test_api.py`.
+
+---
+
+## 4. Verification & Validation
+
+1. **Pre-flight Quality Gates**:
+   - `ruff check .`: 0 errors.
+   - `pytest tests/`: 59/59 tests passing in 4.51s.
+   - `npm --prefix frontend run build`: Clean build in 2.46s (zero TypeScript errors).
+2. **GitOps Deployment**:
+   - Committed (`47b887c`), pushed to `main`, and deployed via GitHub Actions workflow `35337295926`.
+3. **Production Cloud Run Logs (`mindthespot-app-00033-vt6`)**:
+   ```text
+   2026-09-18 11:00:33,530 [INFO] mindthespot.api.app: Initializing MindTheSpot API application lifespan...
+   2026-09-18 11:00:33,554 [INFO] mindthespot.api.app: Performing synchronous cache pre-warm from BigQuery...
+   2026-09-18 11:00:33,554 [INFO] mindthespot.api.service: Pre-warming MindTheSpot cache from BigQuery in project: jcf-mindthespot
+   2026-09-18 11:00:41,881 [INFO] mindthespot.api.service: Successfully pre-warmed cache from BigQuery with 4057 pools (20589 price intervals, 121710 daily rates)
+   2026-09-18 11:00:41,920 [INFO] mindthespot.api.app: BigQuery cache pre-warm succeeded: source=bigquery, pools=4057, prices=20589, preemptions=121710
+   INFO:     Application startup complete.
+   ```
+4. **Live Dashboard Verification**:
+   - Live URL `https://spot-8-232-252-55.sslip.io` serves 4,057 pools, 109 critical shifts, and 65 elevated risks with the green **BigQuery Live** badge active.
+
+
 
 

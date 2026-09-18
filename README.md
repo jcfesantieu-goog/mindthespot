@@ -10,7 +10,7 @@ Instead of passive telemetry or slow ad-hoc dashboards, MindTheSpot acts as an *
 * **Spot vs. On-Demand Arbitrage:** Compares real-time spot rates against public Google Cloud list prices stored in BigQuery, displaying live spot discounts ($30\%\text{--}80\%$) across instance cards, historical charts, and the pool explorer.
 * **Multi-Watchlist & Workload Management (ADR 003):** Create, track, and filter named workload watchlists (e.g. data pipelines, ML clusters) in the Situation Room with real-time critical/elevated anomaly counters, dual-layer client/server persistence, and modal management.
 * **Natural Deterministic Sorting:** Pool Explorer provides natural numeric sorting for machine types (e.g. `c4a-standard-2`, `4`, `16`, `32`) with multi-column tie-breakers for predictable pagination.
-* **Hybrid In-Memory Serving (ADR 002):** Pre-warms 4,000+ pools and 140,000+ telemetry points into RAM upon container startup, serving all dashboard traffic in $< 5\text{ ms}$ with zero BigQuery slot consumption.
+* **Hybrid In-Memory Serving (ADR 002):** Synchronously pre-warms 4,000+ pools and 140,000+ telemetry points into RAM upon container startup (`SYNC_PREWARM="true"` on Cloud Run), serving all dashboard traffic in $< 5\text{ ms}$ with zero BigQuery slot consumption, real-time Cache Provenance Badging, and force-refresh capabilities.
 * **Zero-Trust Enterprise Edge:** Protected by **Google Cloud Identity-Aware Proxy (IAP)** and a **Global External HTTPS Load Balancer** with automated Google-managed SSL via `sslip.io`.
 
 ---
@@ -122,7 +122,7 @@ Run all three quality gates before committing code or pushing:
 # Gate 1: Python Linting & Formatting
 ./.venv/bin/ruff check .
 
-# Gate 2: Automated Test Suite (57 tests, 92% coverage in <6s)
+# Gate 2: Automated Test Suite (59 tests, 92% coverage in <6s)
 ./.venv/bin/pytest tests/
 
 # Gate 3: Frontend TypeScript & Production Build
@@ -161,7 +161,7 @@ All cloud infrastructure is declared in `terraform/` and deployed through contin
 
 ### GitOps Pipeline (`.github/workflows/gitops.yml`)
 Triggered automatically on pushes to `main`:
-1. **Pre-flight Quality Gates**: Runs `ruff check .`, `pytest tests/` (52 tests), and `npm run build`.
+1. **Pre-flight Quality Gates**: Runs `ruff check .`, `pytest tests/` (59 tests), and `npm run build`.
 2. **Workload Identity Federation**: Authenticates to Google Cloud via keyless OIDC tokens.
 3. **Container Build**: Compiles multi-stage Docker image and pushes to Google Artifact Registry.
 4. **Terraform Apply**: Applies declarative changes with remote state stored in `gs://jcf-mindthespot-tfstate`.
@@ -172,7 +172,7 @@ Triggered automatically on pushes to `main`:
 
 * **[GEMINI.md](GEMINI.md):** AI context guidelines, operational principles, anti-patterns, and environment variables.
 * **[SPEC.md](SPEC.md):** Full technical specifications, BigQuery schemas, REST API specs, and mathematical formulas.
-* **[issue.md](issue.md):** Incident post-mortems (OOM crawler fix, interval expansion, and synthetic fallback resolution).
+* **[issue.md](issue.md):** Incident post-mortems (OOM crawler fix, interval expansion, view drift, and Cloud Run async pre-warm CPU starvation).
 * **[ADR 001: Cloud IAP & Load Balancer](docs/adr/001-cloud-iap-load-balancer-sslip.md):** Architecture Decision Record detailing Domain Restricted Sharing (DRS), dynamic `sslip.io` DNS, and zero-trust authentication.
-* **[ADR 002: In-Memory Pre-Warming & Background Sync](docs/adr/002-hybrid-prewarm-background-sync-caching.md):** Architecture Decision Record detailing sub-5ms serving and BigQuery slot optimization.
+* **[ADR 002: In-Memory Pre-Warming & Background Sync](docs/adr/002-hybrid-prewarm-background-sync-caching.md):** Architecture Decision Record detailing sub-5ms serving, synchronous Cloud Run pre-warming (`SYNC_PREWARM`), and Cache Provenance telemetry.
 * **[ADR 003: Dual-Layer Watchlist & Fallback Pivots](docs/adr/003-dual-layer-watchlist-and-prioritized-fallback-pivots.md):** Architecture Decision Record detailing dual-layer client/server watchlist sync, 3-tier fallback matching, and multi-watchlist management.
