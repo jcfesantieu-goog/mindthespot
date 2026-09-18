@@ -3,6 +3,7 @@
 from pydantic import BaseModel, Field
 
 from mindthespot.analytics.pivot_rules import PivotCandidate
+from mindthespot.config.models import WatchlistEntry
 from mindthespot.crawler.models import DailyPreemptionRate, PriceIntervalRecord
 
 
@@ -102,6 +103,23 @@ class WatchlistCreateRequest(BaseModel):
     machine_types: list[str] = Field(..., min_length=1)
     alert_threshold_z: float | None = None
     alert_threshold_delta: float | None = None
+
+
+class WatchlistSyncRequest(BaseModel):
+    """Payload to synchronize client-side watchlist state with backend/BigQuery."""
+
+    entries: list[WatchlistEntry] = Field(default_factory=list)
+    starred_pools: list[str] = Field(default_factory=list)
+    custom_labels: dict[str, str] = Field(default_factory=dict)
+
+
+class WatchlistSyncResponse(BaseModel):
+    """Response containing consolidated server-side and BigQuery watchlist state."""
+
+    status: str = "success"
+    entries: list[WatchlistEntry] = Field(default_factory=list)
+    starred_pools: list[str] = Field(default_factory=list)
+    custom_labels: dict[str, str] = Field(default_factory=dict)
 
 
 class CacheStatusResponse(BaseModel):

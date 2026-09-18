@@ -113,3 +113,16 @@ export interface WatchlistEntry {
   alert_threshold_z?: number | null;
   alert_threshold_delta?: number | null;
 }
+
+export interface WatchlistSyncRequest {
+  entries: WatchlistEntry[];
+  starred_pools: string[];
+  custom_labels?: Record<string, string>;
+}
+
+export interface WatchlistSyncResponse {
+  status: string;
+  entries: WatchlistEntry[];
+  starred_pools: string[];
+  custom_labels: Record<string, string>;
+}

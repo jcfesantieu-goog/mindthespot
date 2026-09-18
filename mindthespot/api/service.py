@@ -1,3 +1,4 @@
+import json
 import logging
 import os
 import random
@@ -21,6 +22,8 @@ from mindthespot.api.schemas import (
     PoolHistoryResponse,
     PoolSummaryResponse,
     WatchlistCreateRequest,
+    WatchlistSyncRequest,
+    WatchlistSyncResponse,
 )
 from mindthespot.config.loader import load_catalog, load_watchlist, resolve_targets
 from mindthespot.config.models import (
@@ -45,9 +48,18 @@ class SpotDataService:
         pre_warm: bool = False,
         project_id: str | None = None,
         initialize_synthetic: bool = True,
+        bq_storage: Any | None = None,
     ) -> None:
         self.catalog = catalog or load_catalog()
         self.watchlist = watchlist or load_watchlist()
+        self.project_id = (
+            project_id
+            or os.getenv("GCP_PROJECT")
+            or os.getenv("PROJECT_ID")
+            or os.getenv("GCP_PROJECT_ID")
+            or "jcf-mindthespot"
+        )
+        self._bq_storage = bq_storage
         self._custom_watchlist_entries: list[WatchlistEntry] = []
         self._pool_cache: dict[str, dict[str, Any]] = {}
         self._data_source: str = "synthetic"
@@ -62,7 +74,25 @@ class SpotDataService:
             self._initialize_synthetic_dataset()
 
         if pre_warm:
-            self.warm_cache_from_bigquery(project_id)
+            self.warm_cache_from_bigquery(self.project_id)
+
+    @property
+    def bq_storage(self) -> Any:
+        """BigQuery storage client instance for persistent watchlist storage."""
+        if self._bq_storage is None:
+            if os.getenv("DISABLE_BIGQUERY_STORAGE", "false").lower() in ("true", "1", "yes"):
+                return None
+            try:
+                from mindthespot.storage.bigquery_client import BigQueryStorageClient
+
+                self._bq_storage = BigQueryStorageClient(
+                    project=self.project_id,
+                    dataset=os.getenv("BIGQUERY_DATASET_RAW", "mindthespot_raw"),
+                )
+            except Exception as exc:
+                logger.warning("Could not initialize BigQueryStorageClient: %s", exc)
+                return None
+        return self._bq_storage
 
     @property
     def _synthetic_pool_cache(self) -> dict[str, dict[str, Any]]:
@@ -329,6 +359,49 @@ class SpotDataService:
                     )
                 )
 
+            # Hydrate user watchlists from BigQuery persistent table
+            starred_pools_bq: dict[str, str | None] = {}
+            try:
+                if self.bq_storage is not None:
+                    bq_rows = self.bq_storage.fetch_user_watchlists()
+                    for r in bq_rows:
+                        wtype = r.get("watchlist_type")
+                        if wtype == "WORKLOAD_TARGET":
+                            zones = json.loads(r["zones_json"]) if r.get("zones_json") else []
+                            machine_types = (
+                                json.loads(r["machine_types_json"])
+                                if r.get("machine_types_json")
+                                else [r["machine_type"]]
+                                if r.get("machine_type")
+                                else []
+                            )
+                            entry = WatchlistEntry(
+                                name=r.get("target_name"),
+                                region=r["region"],
+                                zones=zones,
+                                machine_types=machine_types,
+                                alert_threshold_z=r.get("alert_threshold_z"),
+                                alert_threshold_delta=r.get("alert_threshold_delta"),
+                            )
+                            if not any(
+                                e.name == entry.name and e.region == entry.region
+                                for e in self.watchlist.watchlist
+                            ):
+                                self.watchlist.watchlist.append(entry)
+                            if not any(
+                                e.name == entry.name and e.region == entry.region
+                                for e in self._custom_watchlist_entries
+                            ):
+                                self._custom_watchlist_entries.append(entry)
+                        elif wtype == "STARRED_POOL":
+                            r_reg = str(r.get("region") or "").strip().lower()
+                            r_zone = str(r.get("zone") or "").strip().lower()
+                            r_mt = str(r.get("machine_type") or "").strip().lower()
+                            if r_reg and r_zone and r_mt:
+                                starred_pools_bq[f"{r_reg}/{r_zone}/{r_mt}"] = r.get("custom_label")
+            except Exception as wl_exc:
+                logger.warning("Could not hydrate user watchlists during BigQuery pre-warm: %s", wl_exc)
+
             new_cache: dict[str, dict[str, Any]] = {}
             for s in shifts:
                 reg = s.region.strip().lower()
@@ -341,13 +414,32 @@ class SpotDataService:
 
                 latest_rate = rates[-1].preemption_rate if rates else (s.recent_7d_rate or 0.0)
 
+                is_wl = bool(s.is_watchlist) or (key in starred_pools_bq)
+                custom_lbl = s.custom_label or starred_pools_bq.get(key)
+
+                # Check workload targets
+                for w_entry in self.watchlist.watchlist:
+                    if reg == w_entry.region.lower():
+                        zone_ok = not w_entry.zones or zn in [z.lower() for z in w_entry.zones]
+                        mt_ok = not w_entry.machine_types or mt in [m.lower() for m in w_entry.machine_types]
+                        if zone_ok and mt_ok:
+                            is_wl = True
+                            if w_entry.name:
+                                custom_lbl = w_entry.name
+                            break
+
+                # Preserve runtime cache if active
+                if key in self._pool_cache and self._pool_cache[key]["target"].is_watchlist:
+                    is_wl = True
+                    custom_lbl = self._pool_cache[key]["target"].custom_label or custom_lbl
+
                 target = InstancePoolTarget(
                     region=reg,
                     zone=zn,
                     machine_type=mt,
                     family=s.family or mt.split("-")[0],
-                    is_watchlist=bool(s.is_watchlist),
-                    custom_label=s.custom_label,
+                    is_watchlist=is_wl,
+                    custom_label=custom_lbl,
                 )
 
                 metrics = {
@@ -714,8 +806,13 @@ class SpotDataService:
             pivots=candidates,
         )
 
-    def add_watchlist_entry(self, req: WatchlistCreateRequest) -> list[str]:
-        """Dynamically add custom watchlist targets to active monitoring."""
+    def add_watchlist_entry(
+        self,
+        req: WatchlistCreateRequest,
+        user_email: str | None = None,
+    ) -> list[str]:
+        """Dynamically add custom watchlist targets to active monitoring and persist to BigQuery."""
+        email = user_email or "default"
         entry = WatchlistEntry(
             name=req.name,
             region=req.region,
@@ -724,21 +821,58 @@ class SpotDataService:
             alert_threshold_z=req.alert_threshold_z,
             alert_threshold_delta=req.alert_threshold_delta,
         )
-        self._custom_watchlist_entries.append(entry)
+        added_keys = []
+        with self._lock:
+            if not any(
+                e.name == entry.name and e.region == entry.region
+                for e in self._custom_watchlist_entries
+            ):
+                self._custom_watchlist_entries.append(entry)
 
-        # Merge into watchlist
-        self.watchlist.watchlist.append(entry)
-        self._initialize_synthetic_dataset()
+            if not any(
+                e.name == entry.name and e.region == entry.region
+                for e in self.watchlist.watchlist
+            ):
+                self.watchlist.watchlist.append(entry)
 
-        # Invalidate cache
-        from mindthespot.api.cache import clear_cache
+            for _key, data in self._pool_cache.items():
+                target = data.get("target")
+                if target and target.region.lower() == req.region.lower():
+                    zone_ok = not req.zones or target.zone.lower() in [z.lower() for z in req.zones]
+                    mt_ok = not req.machine_types or target.machine_type.lower() in [
+                        m.lower() for m in req.machine_types
+                    ]
+                    if zone_ok and mt_ok:
+                        target.is_watchlist = True
+                        if req.name:
+                            target.custom_label = req.name
+                        added_keys.append(target.pool_key)
 
         clear_cache()
 
-        added_keys = []
-        for mt in req.machine_types:
-            for z in req.zones:
-                added_keys.append(f"{req.region}/{z}/{mt}")
+        # Persist to BigQuery user_watchlists table
+        if self.bq_storage is not None:
+            now_iso = datetime.now(UTC).isoformat()
+            row = {
+                "user_email": email,
+                "watchlist_type": "WORKLOAD_TARGET",
+                "target_name": req.name,
+                "region": req.region,
+                "zone": None,
+                "machine_type": None,
+                "zones_json": json.dumps(req.zones) if req.zones else None,
+                "machine_types_json": json.dumps(req.machine_types) if req.machine_types else None,
+                "custom_label": req.name,
+                "alert_threshold_z": req.alert_threshold_z,
+                "alert_threshold_delta": req.alert_threshold_delta,
+                "is_active": True,
+                "updated_at": now_iso,
+            }
+            try:
+                self.bq_storage.save_user_watchlist_entries([row])
+            except Exception as exc:
+                logger.warning("Failed to persist watchlist entry to BigQuery: %s", exc)
+
         return added_keys
 
     def toggle_watchlist_pool(
@@ -748,9 +882,14 @@ class SpotDataService:
         machine_type: str,
         is_watchlist: bool,
         custom_label: str | None = None,
+        user_email: str | None = None,
     ) -> bool:
-        """Toggle watchlist flag and custom label on an individual pool."""
-        key = f"{region.strip().lower()}/{zone.strip().lower()}/{machine_type.strip().lower()}"
+        """Toggle watchlist flag and custom label on an individual pool and persist to BigQuery."""
+        email = user_email or "default"
+        reg = region.strip().lower()
+        zn = zone.strip().lower()
+        mt = machine_type.strip().lower()
+        key = f"{reg}/{zn}/{mt}"
         with self._lock:
             if key in self._pool_cache:
                 self._pool_cache[key]["target"].is_watchlist = is_watchlist
@@ -758,20 +897,54 @@ class SpotDataService:
                     self._pool_cache[key]["target"].custom_label = custom_label
                 elif not is_watchlist:
                     self._pool_cache[key]["target"].custom_label = None
-            clear_cache()
-            return True
+
+        clear_cache()
+
+        # Persist to BigQuery user_watchlists table
+        if self.bq_storage is not None:
+            now_iso = datetime.now(UTC).isoformat()
+            row = {
+                "user_email": email,
+                "watchlist_type": "STARRED_POOL",
+                "target_name": None,
+                "region": reg,
+                "zone": zn,
+                "machine_type": mt,
+                "zones_json": None,
+                "machine_types_json": None,
+                "custom_label": custom_label,
+                "alert_threshold_z": None,
+                "alert_threshold_delta": None,
+                "is_active": is_watchlist,
+                "updated_at": now_iso,
+            }
+            try:
+                self.bq_storage.save_user_watchlist_entries([row])
+            except Exception as exc:
+                logger.warning("Failed to persist toggle pool to BigQuery: %s", exc)
+
+        return True
 
     def remove_watchlist_pool(
         self,
         region: str,
         zone: str,
         machine_type: str,
+        user_email: str | None = None,
     ) -> bool:
-        """Remove a pool from watchlist and delete custom watchlist entries."""
-        return self.toggle_watchlist_pool(region, zone, machine_type, is_watchlist=False)
+        """Remove a pool from watchlist."""
+        return self.toggle_watchlist_pool(
+            region, zone, machine_type, is_watchlist=False, user_email=user_email
+        )
 
-    def remove_watchlist_target(self, name: str | None, region: str) -> bool:
+    def remove_watchlist_target(
+        self,
+        name: str | None,
+        region: str,
+        user_email: str | None = None,
+    ) -> bool:
         """Remove an entire named or regional watchlist entry and reset associated pools."""
+        email = user_email or "default"
         with self._lock:
             matched = [
                 e
@@ -798,7 +971,212 @@ class SpotDataService:
                             target.is_watchlist = False
                             target.custom_label = None
 
-            from mindthespot.api.cache import clear_cache
+        clear_cache()
 
-            clear_cache()
-            return True
+        # Persist soft-deletion to BigQuery user_watchlists table
+        if self.bq_storage is not None:
+            now_iso = datetime.now(UTC).isoformat()
+            row = {
+                "user_email": email,
+                "watchlist_type": "WORKLOAD_TARGET",
+                "target_name": name,
+                "region": region,
+                "zone": None,
+                "machine_type": None,
+                "zones_json": None,
+                "machine_types_json": None,
+                "custom_label": None,
+                "alert_threshold_z": None,
+                "alert_threshold_delta": None,
+                "is_active": False,
+                "updated_at": now_iso,
+            }
+            try:
+                self.bq_storage.save_user_watchlist_entries([row])
+            except Exception as exc:
+                logger.warning("Failed to persist target deletion to BigQuery: %s", exc)
+
+        return True
+
+    def get_watchlist_state(self, user_email: str | None = None) -> WatchlistSyncResponse:
+        """Return the consolidated watchlist entries, starred pools, and custom labels."""
+        starred: list[str] = []
+        labels: dict[str, str] = {}
+        with self._lock:
+            for key, data in self._pool_cache.items():
+                target = data.get("target")
+                if target and target.is_watchlist:
+                    starred.append(key)
+                    if target.custom_label:
+                        labels[key] = target.custom_label
+
+        return WatchlistSyncResponse(
+            status="success",
+            entries=list(self.watchlist.watchlist),
+            starred_pools=starred,
+            custom_labels=labels,
+        )
+
+    def sync_watchlist(
+        self,
+        req: WatchlistSyncRequest,
+        user_email: str | None = None,
+    ) -> WatchlistSyncResponse:
+        """Reconcile and synchronize client-side watchlist state with BigQuery and in-memory cache."""
+        email = user_email or "default"
+        now_iso = datetime.now(UTC).isoformat()
+        bq_rows_to_save: list[dict[str, Any]] = []
+
+        # 1. Fetch current active state from BigQuery
+        bq_rows = []
+        try:
+            if self.bq_storage is not None:
+                bq_rows = self.bq_storage.fetch_user_watchlists(user_email=email)
+        except Exception as exc:
+            logger.warning("Could not fetch watchlists from BigQuery during sync: %s", exc)
+
+        # Build maps from BigQuery
+        bq_workloads: dict[str, WatchlistEntry] = {}
+        bq_starred: set[str] = set()
+        bq_labels: dict[str, str] = {}
+
+        for row in bq_rows:
+            wtype = row.get("watchlist_type")
+            if wtype == "WORKLOAD_TARGET":
+                w_name = row.get("target_name") or ""
+                w_reg = row.get("region")
+                w_key = f"{w_name}::{w_reg}"
+                zones = json.loads(row["zones_json"]) if row.get("zones_json") else []
+                machine_types = (
+                    json.loads(row["machine_types_json"])
+                    if row.get("machine_types_json")
+                    else [row["machine_type"]]
+                    if row.get("machine_type")
+                    else []
+                )
+                bq_workloads[w_key] = WatchlistEntry(
+                    name=row.get("target_name"),
+                    region=w_reg,
+                    zones=zones,
+                    machine_types=machine_types,
+                    alert_threshold_z=row.get("alert_threshold_z"),
+                    alert_threshold_delta=row.get("alert_threshold_delta"),
+                )
+            elif wtype == "STARRED_POOL":
+                reg = str(row.get("region") or "").strip().lower()
+                z = str(row.get("zone") or "").strip().lower()
+                mt = str(row.get("machine_type") or "").strip().lower()
+                pool_key = f"{reg}/{z}/{mt}"
+                bq_starred.add(pool_key)
+                if row.get("custom_label"):
+                    bq_labels[pool_key] = row["custom_label"]
+
+        # Merge client entries into BigQuery if missing
+        for client_entry in req.entries:
+            c_key = f"{client_entry.name or ''}::{client_entry.region}"
+            if c_key not in bq_workloads:
+                bq_workloads[c_key] = client_entry
+                bq_rows_to_save.append(
+                    {
+                        "user_email": email,
+                        "watchlist_type": "WORKLOAD_TARGET",
+                        "target_name": client_entry.name,
+                        "region": client_entry.region,
+                        "zone": None,
+                        "machine_type": None,
+                        "zones_json": json.dumps(client_entry.zones) if client_entry.zones else None,
+                        "machine_types_json": json.dumps(client_entry.machine_types)
+                        if client_entry.machine_types
+                        else None,
+                        "custom_label": client_entry.name,
+                        "alert_threshold_z": client_entry.alert_threshold_z,
+                        "alert_threshold_delta": client_entry.alert_threshold_delta,
+                        "is_active": True,
+                        "updated_at": now_iso,
+                    }
+                )
+
+        # Merge client starred pools into BigQuery if missing
+        for pool_key in req.starred_pools:
+            pk = pool_key.lower().strip()
+            if pk not in bq_starred:
+                bq_starred.add(pk)
+                parts = pk.split("/")
+                if len(parts) == 3:
+                    reg, z, mt = parts
+                    lbl = req.custom_labels.get(pk) or req.custom_labels.get(pool_key)
+                    if lbl:
+                        bq_labels[pk] = lbl
+                    bq_rows_to_save.append(
+                        {
+                            "user_email": email,
+                            "watchlist_type": "STARRED_POOL",
+                            "target_name": None,
+                            "region": reg,
+                            "zone": z,
+                            "machine_type": mt,
+                            "zones_json": None,
+                            "machine_types_json": None,
+                            "custom_label": lbl,
+                            "alert_threshold_z": None,
+                            "alert_threshold_delta": None,
+                            "is_active": True,
+                            "updated_at": now_iso,
+                        }
+                    )
+
+        # Save any newly discovered rows to BigQuery
+        if bq_rows_to_save and self.bq_storage is not None:
+            try:
+                self.bq_storage.save_user_watchlist_entries(bq_rows_to_save)
+            except Exception as exc:
+                logger.warning("Could not persist synced watchlists to BigQuery: %s", exc)
+
+        final_entries = list(bq_workloads.values())
+        final_starred = list(bq_starred)
+        final_labels = {**req.custom_labels, **bq_labels}
+
+        with self._lock:
+            for entry in final_entries:
+                if not any(
+                    e.name == entry.name and e.region == entry.region
+                    for e in self.watchlist.watchlist
+                ):
+                    self.watchlist.watchlist.append(entry)
+                if not any(
+                    e.name == entry.name and e.region == entry.region
+                    for e in self._custom_watchlist_entries
+                ):
+                    self._custom_watchlist_entries.append(entry)
+
+            for key, data in self._pool_cache.items():
+                target = data.get("target")
+                if not target:
+                    continue
+                if key.lower() in bq_starred:
+                    target.is_watchlist = True
+                    if key.lower() in final_labels:
+                        target.custom_label = final_labels[key.lower()]
+                else:
+                    for entry in final_entries:
+                        if target.region.lower() == entry.region.lower():
+                            zone_ok = not entry.zones or target.zone.lower() in [
+                                z.lower() for z in entry.zones
+                            ]
+                            mt_ok = not entry.machine_types or target.machine_type.lower() in [
+                                m.lower() for m in entry.machine_types
+                            ]
+                            if zone_ok and mt_ok:
+                                target.is_watchlist = True
+                                if entry.name:
+                                    target.custom_label = entry.name
+                                break
+
+        clear_cache()
+
+        return WatchlistSyncResponse(
+            status="success",
+            entries=final_entries,
+            starred_pools=final_starred,
+            custom_labels=final_labels,
+        )

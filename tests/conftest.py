@@ -1,6 +1,10 @@
 """Test fixtures for MindTheSpot test suite."""
 
+import os
+
 import pytest
+
+os.environ["DISABLE_BIGQUERY_STORAGE"] = "true"
 
 
 @pytest.fixture
@@ -84,3 +88,9 @@ def mini_catalog():
             ),
         ],
     )
+
+
+@pytest.fixture(autouse=True)
+def hermetic_test_env(monkeypatch):
+    """Ensure all test runs are strictly hermetic without live GCP calls."""
+    monkeypatch.setenv("DISABLE_BIGQUERY_STORAGE", "true")

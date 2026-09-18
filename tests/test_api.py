@@ -147,6 +147,38 @@ def test_watchlist_workflow(client):
     get_res3 = client.get("/api/v1/watchlist")
     assert len(get_res3.json()) == initial_count
 
+    # 8. Test /api/v1/watchlist/state
+    state_res = client.get("/api/v1/watchlist/state")
+    assert state_res.status_code == 200
+    state_data = state_res.json()
+    assert state_data["status"] == "success"
+    assert "entries" in state_data
+    assert "starred_pools" in state_data
+    assert "custom_labels" in state_data
+
+    # 9. Test /api/v1/watchlist/sync
+    sync_payload = {
+        "entries": [
+            {
+                "name": "Sync Workload",
+                "region": "europe-west4",
+                "zones": ["europe-west4-a"],
+                "machine_types": ["c4a-standard-4"],
+                "alert_threshold_z": 2.0,
+                "alert_threshold_delta": 0.10,
+            }
+        ],
+        "starred_pools": ["europe-west4/europe-west4-a/c4a-standard-4"],
+        "custom_labels": {"europe-west4/europe-west4-a/c4a-standard-4": "Sync Label"},
+    }
+    sync_res = client.post("/api/v1/watchlist/sync", json=sync_payload)
+    assert sync_res.status_code == 200
+    sync_data = sync_res.json()
+    assert sync_data["status"] == "success"
+    assert any(e["name"] == "Sync Workload" for e in sync_data["entries"])
+    assert "europe-west4/europe-west4-a/c4a-standard-4" in sync_data["starred_pools"]
+    assert sync_data["custom_labels"].get("europe-west4/europe-west4-a/c4a-standard-4") == "Sync Label"
+
 
 def test_anomalies_price_filter(client):
     # Test anomalies with price_filter

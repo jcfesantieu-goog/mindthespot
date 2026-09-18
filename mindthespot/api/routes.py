@@ -14,6 +14,8 @@ from mindthespot.api.schemas import (
     PoolHistoryResponse,
     PoolSummaryResponse,
     WatchlistCreateRequest,
+    WatchlistSyncRequest,
+    WatchlistSyncResponse,
 )
 from mindthespot.api.service import SpotDataService
 from mindthespot.config.models import WatchlistEntry
@@ -143,9 +145,10 @@ def get_watchlist(
 def add_watchlist_entry(
     req: WatchlistCreateRequest,
     service: Annotated[SpotDataService, Depends(get_spot_service)],
+    user: Annotated[UserContext, Depends(get_current_user_context)],
 ) -> dict:
-    """Add custom instance pools to dynamic active watchlist."""
-    added_keys = service.add_watchlist_entry(req)
+    """Add custom instance pools to dynamic active watchlist and persist to BigQuery."""
+    added_keys = service.add_watchlist_entry(req, user_email=user.email)
     return {
         "status": "success",
         "message": f"Added {len(added_keys)} pool targets to watchlist",
@@ -163,9 +166,10 @@ def remove_watchlist_entry(
     zone: str,
     machine_type: str,
     service: Annotated[SpotDataService, Depends(get_spot_service)],
+    user: Annotated[UserContext, Depends(get_current_user_context)],
 ) -> dict:
     """Remove a specific instance pool from watchlist."""
-    success = service.remove_watchlist_pool(region, zone, machine_type)
+    success = service.remove_watchlist_pool(region, zone, machine_type, user_email=user.email)
     return {
         "status": "success",
         "message": f"Removed {region}/{zone}/{machine_type} from watchlist",
@@ -181,10 +185,11 @@ def remove_watchlist_entry(
 def delete_watchlist_target(
     region: str,
     service: Annotated[SpotDataService, Depends(get_spot_service)],
+    user: Annotated[UserContext, Depends(get_current_user_context)],
     name: str | None = None,
 ) -> dict:
     """Remove a whole named or regional watchlist entry and reset associated pools."""
-    success = service.remove_watchlist_target(name=name, region=region)
+    success = service.remove_watchlist_target(name=name, region=region, user_email=user.email)
     return {
         "status": "success",
         "message": f"Removed watchlist target {name or region}",
@@ -200,6 +205,7 @@ def delete_watchlist_target(
 def toggle_watchlist_entry(
     req: dict,
     service: Annotated[SpotDataService, Depends(get_spot_service)],
+    user: Annotated[UserContext, Depends(get_current_user_context)],
 ) -> dict:
     """Toggle watchlist status for an individual instance pool."""
     region = req.get("region", "")
@@ -207,13 +213,34 @@ def toggle_watchlist_entry(
     machine_type = req.get("machine_type", "")
     is_watchlist = bool(req.get("is_watchlist", True))
     label = req.get("custom_label")
-    success = service.toggle_watchlist_pool(region, zone, machine_type, is_watchlist, label)
+    success = service.toggle_watchlist_pool(
+        region, zone, machine_type, is_watchlist, label, user_email=user.email
+    )
     return {
         "status": "success",
         "is_watchlist": is_watchlist,
         "pool": f"{region}/{zone}/{machine_type}",
         "success": success,
     }
+
+
+@router.get("/v1/watchlist/state", response_model=WatchlistSyncResponse, tags=["Watchlist"])
+def get_watchlist_state(
+    service: Annotated[SpotDataService, Depends(get_spot_service)],
+    user: Annotated[UserContext, Depends(get_current_user_context)],
+) -> WatchlistSyncResponse:
+    """Retrieve complete consolidated watchlist state (entries, starred pools, custom labels)."""
+    return service.get_watchlist_state(user_email=user.email)
+
+
+@router.post("/v1/watchlist/sync", response_model=WatchlistSyncResponse, tags=["Watchlist"])
+def sync_watchlist(
+    req: WatchlistSyncRequest,
+    service: Annotated[SpotDataService, Depends(get_spot_service)],
+    user: Annotated[UserContext, Depends(get_current_user_context)],
+) -> WatchlistSyncResponse:
+    """Synchronize client-side local watchlists with BigQuery and backend state."""
+    return service.sync_watchlist(req, user_email=user.email)
 
 
 @router.get("/v1/auth/me", response_model=UserContext, tags=["Authentication"])

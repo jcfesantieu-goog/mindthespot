@@ -14,6 +14,7 @@ from mindthespot.storage.schemas import (
     ON_DEMAND_PRICING_TABLE_SCHEMA,
     PREEMPTION_TABLE_SCHEMA,
     PRICE_TABLE_SCHEMA,
+    USER_WATCHLISTS_TABLE_SCHEMA,
 )
 
 logger = logging.getLogger(__name__)
@@ -88,7 +89,17 @@ class BigQueryStorageClient:
             self.client.create_table(table, exists_ok=True)
             logger.info("Created BigQuery table %s", od_table_id)
 
-        # 4. Seed on-demand pricing reference if empty
+        # 4. Ensure User Watchlists Reference Table
+        wl_table_id = f"{self.project}.{self.dataset}.user_watchlists"
+        try:
+            self.client.get_table(wl_table_id)
+        except NotFound:
+            table = bigquery.Table(wl_table_id, schema=USER_WATCHLISTS_TABLE_SCHEMA)
+            table.clustering_fields = ["user_email", "region"]
+            self.client.create_table(table, exists_ok=True)
+            logger.info("Created BigQuery table %s", wl_table_id)
+
+        # 5. Seed on-demand pricing reference if empty
         ensure_on_demand_pricing_seeded(self.client, self.project, self.dataset)
 
     def seed_on_demand_pricing(self) -> int:
@@ -164,3 +175,70 @@ class BigQueryStorageClient:
                     table_name,
                     e,
                 )
+
+    def fetch_user_watchlists(self, user_email: str | None = None) -> list[dict[str, Any]]:
+        """Fetch active user watchlists using window deduplication."""
+        query = f"""
+        WITH ranked AS (
+          SELECT
+            user_email,
+            watchlist_type,
+            target_name,
+            region,
+            zone,
+            machine_type,
+            zones_json,
+            machine_types_json,
+            custom_label,
+            alert_threshold_z,
+            alert_threshold_delta,
+            is_active,
+            updated_at,
+            ROW_NUMBER() OVER (
+              PARTITION BY
+                user_email,
+                watchlist_type,
+                region,
+                COALESCE(target_name, ''),
+                COALESCE(zone, ''),
+                COALESCE(machine_type, '')
+              ORDER BY updated_at DESC
+            ) as rn
+          FROM `{self.project}.{self.dataset}.user_watchlists`
+        )
+        SELECT * EXCEPT(rn)
+        FROM ranked
+        WHERE rn = 1 AND is_active = TRUE
+        """
+        params = []
+        if user_email and user_email != "default":
+            query += " AND (user_email = @user_email OR user_email = 'all' OR user_email = 'default')"
+            params.append(bigquery.ScalarQueryParameter("user_email", "STRING", user_email))
+
+        try:
+            job_config = bigquery.QueryJobConfig(query_parameters=params) if params else None
+            results = self.client.query(query, job_config=job_config).result()
+            rows = []
+            for row in results:
+                rows.append(dict(row.items()))
+            logger.info("Fetched %d active user watchlist items from BigQuery", len(rows))
+            return rows
+        except Exception as exc:
+            logger.warning("Could not fetch user watchlists from BigQuery: %s", exc)
+            return []
+
+    def save_user_watchlist_entries(self, entries: list[dict[str, Any]]) -> int:
+        """Append user watchlist records to BigQuery user_watchlists table."""
+        if not entries:
+            return 0
+        table_id = f"{self.project}.{self.dataset}.user_watchlists"
+        try:
+            errors = self.client.insert_rows_json(table_id, entries)
+            if errors:
+                logger.error("Errors inserting rows into %s: %s", table_id, errors)
+                return 0
+            logger.info("Inserted %d watchlist entries into %s", len(entries), table_id)
+            return len(entries)
+        except Exception as exc:
+            logger.error("Failed to insert user watchlists into BigQuery: %s", exc)
+            return 0

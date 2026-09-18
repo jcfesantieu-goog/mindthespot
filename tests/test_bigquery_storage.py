@@ -91,7 +91,52 @@ def test_bigquery_storage_client_ensure_tables():
     storage.ensure_dataset_and_tables()
 
     assert mock_client.create_dataset.call_count == 1
-    assert mock_client.create_table.call_count == 3
+    assert mock_client.create_table.call_count == 4
+
+
+def test_bigquery_storage_client_save_and_fetch_user_watchlists():
+    mock_client = MagicMock()
+    mock_client.insert_rows_json.return_value = []
+
+    storage = BigQueryStorageClient(
+        project="test-proj",
+        dataset="test_raw",
+        client=mock_client,
+    )
+
+    entries = [
+        {
+            "user_email": "test@domain.com",
+            "watchlist_type": "STARRED_POOL",
+            "region": "europe-west4",
+            "zone": "europe-west4-a",
+            "machine_type": "c4d-standard-8",
+            "is_active": True,
+            "updated_at": "2026-09-18T10:00:00Z",
+        }
+    ]
+    count = storage.save_user_watchlist_entries(entries)
+    assert count == 1
+    mock_client.insert_rows_json.assert_called_once()
+
+    # Test fetch_user_watchlists
+    mock_query_job = MagicMock()
+    mock_client.query.return_value = mock_query_job
+    mock_row = MagicMock()
+    mock_row.items.return_value = [
+        ("user_email", "test@domain.com"),
+        ("watchlist_type", "STARRED_POOL"),
+        ("region", "europe-west4"),
+        ("zone", "europe-west4-a"),
+        ("machine_type", "c4d-standard-8"),
+        ("is_active", True),
+    ]
+    mock_query_job.result.return_value = [mock_row]
+
+    results = storage.fetch_user_watchlists("test@domain.com")
+    assert len(results) == 1
+    assert results[0]["user_email"] == "test@domain.com"
+    assert results[0]["watchlist_type"] == "STARRED_POOL"
 
 
 def test_bigquery_storage_client_insert_rows():

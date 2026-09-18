@@ -440,3 +440,52 @@ During visual inspection of `c4a-standard-48` and `c4a-standard-16` pools in `eu
 - Added unit test `test_pivot_cost_delta_more_expensive_candidate` in `tests/test_analytics.py`.
 - 60/60 tests passing in 4.49s.
 - TypeScript compiled with 0 errors and production bundle built successfully.
+
+---
+
+# Issue #6: User Watchlist Loss Across Cloud Run Stateless Lifecycles & Cold Starts (Resolved via BigQuery Table-Level Persistence Layer)
+
+## Status
+**RESOLVED** (2026-09-18)
+
+## Incident Overview & Problem Statement
+Users reported that curated workload watchlists and individual starred instance pools did not persist across browser reloads, container restarts, or Cloud Run scale-to-zero lifecycles:
+- Named workload targets created via the Watchlist Modal disappeared immediately upon refreshing the page or restarting the Cloud Run service.
+- Individual pool stars (`is_watchlist = true`) were stored only in client browser `localStorage` as string pool keys, but were never synchronized back to the backend container upon cold start. Consequently, server-side filtering (`/api/v1/pools?watchlist_only=true` or `/api/v1/anomalies?watchlist_only=true`) returned 0 results.
+- In-memory service state in `SpotDataService` was lost on container lifecycle events, and triggering a cache refresh from BigQuery overwrote active watchlist markings.
+
+## Root-Cause Analysis
+1. **Stateless Ephemeral Cloud Run Environment**:
+   - `terraform/variables.tf` configures `app_min_instances = 0`. Instances scale to zero on inactivity and recycle during new revisions.
+   - Dynamic watchlists were stored solely in ephemeral Python memory (`self._custom_watchlist_entries` and `self.watchlist.watchlist`).
+2. **Missing Client-to-Server Boot Hydration**:
+   - The frontend never sent its stored watchlists or starred pool keys back to the server upon initial boot.
+3. **Absence of a Durable Centralized Data Store for User Watchlists**:
+   - MindTheSpot's raw telemetry (`preemption_history`, `price_history`) and public pricing (`on_demand_pricing`) are stored permanently in BigQuery, but there was no table for user watchlists.
+   - The Cloud Run service account (`mindthespot-app`) was granted only `roles/bigquery.dataViewer` across `mindthespot_raw`, preventing the app from persisting user entries to BigQuery.
+
+## Architectural Resolution: BigQuery Permanent Storage Layer with Table-Level Least-Privilege IAM
+1. **BigQuery Table `mindthespot_raw.user_watchlists`**:
+   - Declared declaratively in `terraform/bigquery.tf` clustered by `(user_email, region)`.
+   - Stores user identity (from Cloud IAP), workload name, region, zones, machine types, custom labels, alert thresholds, and active status.
+2. **Table-Level Least-Privilege IAM**:
+   - Cloud Run service account retains read-only `roles/bigquery.dataViewer` on datasets `mindthespot_raw` and `mindthespot_analytics`.
+   - Dedicated table-level IAM binding (`google_bigquery_table_iam_member`) grants `roles/bigquery.dataEditor` **exclusively on `user_watchlists`** to `google_service_account.app.email`.
+   - Telemetry and pricing history tables remain mathematically protected from application-level writes.
+3. **Hybrid In-Memory Serving (< 5ms) with BigQuery Background Persistence**:
+   - On boot / pre-warm (`warm_cache_from_bigquery`): Query active watchlists from BigQuery and hydrate the RAM cache.
+   - On mutation (`POST /v1/watchlist`, `POST /v1/watchlist/toggle`, `DELETE /v1/watchlist`): Optimistically update in-memory cache for instant UI feedback, and persist changes to BigQuery.
+   - Preserves watchlist state during BigQuery cache refreshes.
+4. **Client-Side Bi-Directional Hydration & Multi-Device Sync**:
+   - `frontend/src/lib/watchlistStorage.ts` provides backward-compatible localStorage parsing, state synchronization, and fallback resilience.
+   - Endpoints `GET /v1/watchlist/state` and `POST /v1/watchlist/sync` synchronize workload entries and starred pools across browser tabs, sessions, and devices.
+
+## Verification & Validation
+1. **Terraform**: `terraform fmt -check` clean, table and least-privilege table IAM resource declared.
+2. **Backend**:
+   - Unit tests covering `BigQueryStorageClient.fetch_user_watchlists()` and `BigQueryStorageClient.save_user_watchlist_entries()`.
+   - Unit tests covering `/api/v1/watchlist/state` and `/api/v1/watchlist/sync` endpoints.
+   - 61/61 unit tests passing in 3.94s with hermetic isolation (`DISABLE_BIGQUERY_STORAGE=true`).
+3. **Frontend**:
+   - `npm --prefix frontend run build` compiles with 0 TypeScript errors.
+   - Local storage migration supports legacy pool string arrays seamlessly.

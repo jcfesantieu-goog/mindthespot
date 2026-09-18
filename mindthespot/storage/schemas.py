@@ -45,6 +45,22 @@ ON_DEMAND_PRICING_TABLE_SCHEMA = [
     bigquery.SchemaField("updated_at", "TIMESTAMP", mode="REQUIRED", description="UTC timestamp of pricing reference update"),
 ]
 
+USER_WATCHLISTS_TABLE_SCHEMA = [
+    bigquery.SchemaField("user_email", "STRING", mode="REQUIRED", description="User identity from Cloud IAP header or local dev context"),
+    bigquery.SchemaField("watchlist_type", "STRING", mode="REQUIRED", description="WORKLOAD_TARGET or STARRED_POOL"),
+    bigquery.SchemaField("target_name", "STRING", mode="NULLABLE", description="User-friendly workload target name"),
+    bigquery.SchemaField("region", "STRING", mode="REQUIRED", description="GCP region identifier, e.g. europe-west4"),
+    bigquery.SchemaField("zone", "STRING", mode="NULLABLE", description="GCP zone identifier for individual pool"),
+    bigquery.SchemaField("machine_type", "STRING", mode="NULLABLE", description="GCP machine type"),
+    bigquery.SchemaField("zones_json", "STRING", mode="NULLABLE", description="JSON array of targeted zones"),
+    bigquery.SchemaField("machine_types_json", "STRING", mode="NULLABLE", description="JSON array of targeted machine types"),
+    bigquery.SchemaField("custom_label", "STRING", mode="NULLABLE", description="Custom workload label"),
+    bigquery.SchemaField("alert_threshold_z", "FLOAT64", mode="NULLABLE", description="Volatility threshold Z-score"),
+    bigquery.SchemaField("alert_threshold_delta", "FLOAT64", mode="NULLABLE", description="Delta threshold"),
+    bigquery.SchemaField("is_active", "BOOL", mode="REQUIRED", description="Active flag"),
+    bigquery.SchemaField("updated_at", "TIMESTAMP", mode="REQUIRED", description="UTC timestamp"),
+]
+
 
 def transform_preemption_records_to_rows(
     records: list[PreemptionSnapshotRecord],

@@ -5,6 +5,8 @@ import {
   PoolSummary,
   Severity,
   WatchlistEntry,
+  WatchlistSyncRequest,
+  WatchlistSyncResponse,
 } from "../types";
 
 const BASE_URL = "/api";
@@ -132,6 +134,22 @@ export async function deleteWatchlistTarget(
     method: "DELETE",
   });
   if (!res.ok) throw new Error(`Failed to delete watchlist target: ${res.statusText}`);
+}
+
+export async function fetchWatchlistState(): Promise<WatchlistSyncResponse> {
+  const res = await fetch(`${BASE_URL}/v1/watchlist/state`);
+  if (!res.ok) throw new Error(`Failed to fetch watchlist state: ${res.statusText}`);
+  return res.json();
+}
+
+export async function syncWatchlist(payload: WatchlistSyncRequest): Promise<WatchlistSyncResponse> {
+  const res = await fetch(`${BASE_URL}/v1/watchlist/sync`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(payload),
+  });
+  if (!res.ok) throw new Error(`Failed to sync watchlist: ${res.statusText}`);
+  return res.json();
 }
 
 export interface UserContextResponse {

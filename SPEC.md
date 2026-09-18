@@ -51,6 +51,7 @@ flowchart TD
         BQ_Raw_Preempt["mindthespot_raw.preemption_history (Partitioned by snapshot_date)"]
         BQ_Raw_Price["mindthespot_raw.price_history (Partitioned by snapshot_date)"]
         BQ_Raw_ODPricing["mindthespot_raw.on_demand_pricing (Public On-Demand Rates Matrix)"]
+        BQ_Raw_Watchlist["mindthespot_raw.user_watchlists (Permanent User Workload Watchlists - Table-Level IAM)"]
         BQ_View_Shifts["mindthespot_analytics.v_regime_shifts (7d vs 30d Z-score, Spot Price & Discount %)"]
         BQ_View_Pivots["mindthespot_analytics.v_pivot_recommendations (Fallback Sibling Zones & Families)"]
     end
@@ -89,6 +90,8 @@ flowchart TD
 
     BQ_View_Shifts -.->|Startup Pre-Warm + Background Sync - ADR 002| FastAPI
     BQ_Raw_Price -.->|Startup Pre-Warm + Background Sync - ADR 002| FastAPI
+    BQ_Raw_Watchlist -.->|Startup Pre-Warm Hydration| FastAPI
+    FastAPI -->|Async Persistence (Table-Level dataEditor)| BQ_Raw_Watchlist
     RunJob -.->|POST api/v1/cache/refresh - Post-Crawl| FastAPI
     FastAPI -->|Serves Static Bundle on root| ReactUI
     FastAPI -->|Serves REST Endpoints on api/v1| ReactUI
@@ -631,6 +634,7 @@ export const AnomalyCard: React.FC<AnomalyCardProps> = ({ anomaly, onSelectPivot
 - [x] **Automated Keyless GitOps:** End-to-end continuous deployment via GitHub Actions using Workload Identity Federation (WIF) with multi-stage Docker build and declarative Terraform apply.
 - [x] **Hybrid In-Memory Caching & Sub-5ms Serving ([ADR 002](docs/adr/002-hybrid-prewarm-background-sync-caching.md)):** BigQuery startup pre-warming and asynchronous background sync delivering instant UI rendering (< 5ms response times) with zero BigQuery concurrency quota consumption and resilient offline fallback.
 - [x] **Dual-Layer Watchlist & Prioritized Fallback Pivots ([ADR 003](docs/adr/003-dual-layer-watchlist-and-prioritized-fallback-pivots.md)):** Dual-layer (browser `localStorage` + backend API) persistence for 1-click pool starring, 3-tier fallback engine prioritizing same-zone instances to eliminate cross-zone egress and PD detachment, and direct deep-link preemption inspection for candidates.
+- [ ] **Permanent BigQuery Watchlist Storage & Table-Level IAM:** Cloud Run service persists user-defined watchlists and starred pools directly to dedicated BigQuery table `mindthespot_raw.user_watchlists` using fine-grained table-level `roles/bigquery.dataEditor` IAM, retaining strict read-only access across raw telemetry and analytics datasets. In-memory pre-warming hydrates active watchlists on startup, delivering sub-5ms API response times across container restarts and multi-device sessions.
 
 
 

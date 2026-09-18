@@ -156,3 +156,27 @@
 - [x] Zero-Trust access model operational and verified live
 - [x] Domain Restricted Sharing organizational constraint fully satisfied
 - [x] Cloud Run secured against direct public invocations
+
+---
+
+## Phase 9: Permanent BigQuery Watchlist Storage & Table-Level IAM (`bq-watchlist`)
+
+- [x] Task 18: BigQuery Schema & Terraform Table-Level IAM
+  - **Acceptance:** Declare `google_bigquery_table.user_watchlists` in `terraform/bigquery.tf` clustered by `(user_email, region)` with active flag, workload metadata, and thresholds. Attach `google_bigquery_table_iam_member` granting `roles/bigquery.dataEditor` exclusively to `google_service_account.app.email` on `user_watchlists`. Datasets remain read-only (`roles/bigquery.dataViewer`).
+  - **Verify:** `terraform validate` and `terraform fmt -check` pass.
+  - **Files:** `terraform/bigquery.tf`, `sql/ddl/04_raw_user_watchlists.sql`
+
+- [x] Task 19: BigQuery Watchlist Storage Methods & In-Memory Pre-Warm Hydration
+  - **Acceptance:** Implement `BigQueryClient.fetch_user_watchlists(user_email)` and `BigQueryClient.save_user_watchlist_entries(...)`. Update `SpotDataService.warm_cache_from_bigquery()` to hydrate active user watchlists into memory on boot. Update `add_watchlist_entry()`, `toggle_watchlist_pool()`, and `remove_watchlist_target()` to optimistically update in-memory cache and asynchronously write changes to BigQuery.
+  - **Verify:** Unit tests pass with mocked BigQuery client in `tests/test_api.py` and `tests/test_bigquery_storage.py`.
+  - **Files:** `mindthespot/storage/bigquery_client.py`, `mindthespot/storage/schemas.py`, `mindthespot/api/service.py`, `mindthespot/api/routes.py`, `mindthespot/api/schemas.py`, `tests/test_api.py`
+
+- [x] Task 20: Frontend Multi-Device Watchlist Sync & Hydration
+  - **Acceptance:** Implement `watchlistStorage.ts` to manage robust client cache with automatic migration. Wire `App.tsx` and `api.ts` to fetch and sync watchlists directly from backend upon boot and upon mutation, keeping client and BigQuery in sync across browser refreshes and container restarts.
+  - **Verify:** `npm run build` succeeds cleanly.
+  - **Files:** `frontend/src/lib/watchlistStorage.ts`, `frontend/src/lib/api.ts`, `frontend/src/App.tsx`, `frontend/src/components/WatchlistModal.tsx`
+
+### Checkpoint 9: BigQuery Watchlist Persistence Validated
+- [x] Table-level least-privilege IAM verified in Terraform
+- [x] Backend retains watchlists across simulated container cold-starts and BigQuery refreshes
+- [x] Frontend maintains full state across browser reloads and multi-device sessions

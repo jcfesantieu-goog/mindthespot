@@ -29,6 +29,11 @@ import { PoolExplorer } from "./components/PoolExplorer";
 import { WatchlistManager } from "./components/WatchlistManager";
 import { InspectorModal } from "./components/InspectorModal";
 import { PivotModal } from "./components/PivotModal";
+import {
+  hydrateAndSyncWatchlist,
+  updateLocalStarredPool,
+  removeLocalWatchlistTarget,
+} from "./lib/watchlistStorage";
 import { cn } from "./lib/utils";
 
 type TabType = "situation-room" | "explorer" | "watchlist";
@@ -59,37 +64,44 @@ export const App: React.FC = () => {
     pivots: PivotCandidate[];
   } | null>(null);
 
-  const getStorageKey = (email?: string) => `mindthespot_watchlist_${email || "anonymous"}`;
-
   const loadAllData = async () => {
     setIsRefreshing(true);
     try {
-      const [anomRes, poolRes, watchRes, userRes, cacheRes] = await Promise.allSettled([
-        fetchAnomalies(),
-        fetchPools(),
-        fetchWatchlist(),
+      // 1. Fetch user context and cache status
+      const [userRes, cacheRes] = await Promise.allSettled([
         fetchCurrentUser(),
         fetchCacheStatus(),
       ]);
 
-      const email = userRes.status === "fulfilled" ? userRes.value.email : undefined;
-      const storageKey = getStorageKey(email);
-      let localStarred: string[] = [];
-      try {
-        const raw = localStorage.getItem(storageKey);
-        if (raw) localStarred = JSON.parse(raw);
-      } catch (e) {
-        console.warn("Failed to parse local watchlist cache", e);
-      }
-
-      if (userRes.status === "fulfilled") setUserContext(userRes.value);
-      if (watchRes.status === "fulfilled") setWatchlist(watchRes.value);
+      const currentUser = userRes.status === "fulfilled" ? userRes.value : null;
+      const email = currentUser?.email;
+      if (currentUser) setUserContext(currentUser);
       if (cacheRes.status === "fulfilled") setCacheStatus(cacheRes.value);
+
+      // 2. Hydrate & Sync Watchlist from LocalStorage and BigQuery via Backend
+      const syncedWatchlist = await hydrateAndSyncWatchlist(email);
+
+      // 3. Fetch anomalies, pools, and catalog watchlist in parallel
+      const [anomRes, poolRes, watchRes] = await Promise.allSettled([
+        fetchAnomalies(),
+        fetchPools(),
+        fetchWatchlist(),
+      ]);
+
+      const localStarred = syncedWatchlist.starred_pools || [];
+
+      // Use synced workload entries if available, otherwise fallback to server watchlist response
+      if (syncedWatchlist.entries && syncedWatchlist.entries.length > 0) {
+        setWatchlist(syncedWatchlist.entries);
+      } else if (watchRes.status === "fulfilled") {
+        setWatchlist(watchRes.value);
+      }
 
       if (poolRes.status === "fulfilled") {
         const enrichedPools = poolRes.value.map((p) => ({
           ...p,
           is_watchlist: p.is_watchlist || localStarred.includes(p.pool_key),
+          custom_label: syncedWatchlist.custom_labels?.[p.pool_key] || p.custom_label,
         }));
         setPools(enrichedPools);
       }
@@ -98,6 +110,7 @@ export const App: React.FC = () => {
         const enrichedAnomalies = anomRes.value.map((a) => ({
           ...a,
           is_watchlist: a.is_watchlist || localStarred.includes(a.pool_key),
+          custom_label: syncedWatchlist.custom_labels?.[a.pool_key] || a.custom_label,
         }));
         setAnomalies(enrichedAnomalies);
       }
@@ -139,21 +152,14 @@ export const App: React.FC = () => {
     );
 
     // 2. Client-side LocalStorage Persistence
-    try {
-      const storageKey = getStorageKey(userContext?.email);
-      const raw = localStorage.getItem(storageKey);
-      let starred: string[] = raw ? JSON.parse(raw) : [];
-      if (nextState) {
-        if (!starred.includes(pool.pool_key)) starred.push(pool.pool_key);
-      } else {
-        starred = starred.filter((k) => k !== pool.pool_key);
-      }
-      localStorage.setItem(storageKey, JSON.stringify(starred));
-    } catch (e) {
-      console.warn("Error updating localStorage watchlist", e);
-    }
+    updateLocalStarredPool(
+      pool.pool_key,
+      nextState,
+      pool.custom_label,
+      userContext?.email
+    );
 
-    // 3. Backend Persistence
+    // 3. Backend BigQuery Persistence
     try {
       await toggleWatchlistPool({
         region: pool.region,
@@ -169,18 +175,10 @@ export const App: React.FC = () => {
 
   const handleRemoveWatchlistTarget = async (entry: WatchlistEntry) => {
     try {
-      const storageKey = getStorageKey(userContext?.email);
-      const raw = localStorage.getItem(storageKey);
-      let starred: string[] = raw ? JSON.parse(raw) : [];
+      // 1. LocalStorage Cleanup
+      removeLocalWatchlistTarget(entry, userContext?.email);
 
-      for (const mt of entry.machine_types) {
-        for (const zone of entry.zones.length > 0 ? entry.zones : [`${entry.region}-a`]) {
-          const key = `${entry.region}/${zone}/${mt}`;
-          starred = starred.filter((k) => k !== key);
-        }
-      }
-      localStorage.setItem(storageKey, JSON.stringify(starred));
-
+      // 2. Backend BigQuery Soft-Deletion
       try {
         await deleteWatchlistTarget(entry.region, entry.name);
       } catch (e) {
