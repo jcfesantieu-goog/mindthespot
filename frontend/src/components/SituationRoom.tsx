@@ -15,7 +15,8 @@ import {
   Plus,
   Settings2,
 } from "lucide-react";
-import { AnomalyItem, Severity, WatchlistEntry } from "../types";
+import { AnomalyItem, Severity, WatchlistEntry, PoolHistory } from "../types";
+import { fetchPoolHistory } from "../lib/api";
 import { AnomalyCard } from "./AnomalyCard";
 import { WatchlistModal } from "./WatchlistModal";
 import { cn } from "../lib/utils";
@@ -48,6 +49,37 @@ export const SituationRoom: React.FC<SituationRoomProps> = ({
   const [watchlistModalAddMode, setWatchlistModalAddMode] = useState<boolean>(false);
   const [showMethodology, setShowMethodology] = useState<boolean>(false);
   const dropdownRef = useRef<HTMLDivElement>(null);
+
+  // Inline inspection state (identical to Fallback Pivot Recommendations and Pool Explorer)
+  const [expandedAnomalyKey, setExpandedAnomalyKey] = useState<string | null>(null);
+  const [historyCache, setHistoryCache] = useState<Record<string, PoolHistory>>({});
+  const [loadingAnomalyKey, setLoadingAnomalyKey] = useState<string | null>(null);
+  const [errorMap, setErrorMap] = useState<Record<string, string>>({});
+
+  const handleToggleInspect = async (anomaly: AnomalyItem) => {
+    if (expandedAnomalyKey === anomaly.pool_key) {
+      setExpandedAnomalyKey(null);
+      return;
+    }
+
+    setExpandedAnomalyKey(anomaly.pool_key);
+
+    if (!historyCache[anomaly.pool_key] && loadingAnomalyKey !== anomaly.pool_key) {
+      setLoadingAnomalyKey(anomaly.pool_key);
+      try {
+        const data = await fetchPoolHistory(anomaly.region, anomaly.zone, anomaly.machine_type);
+        setHistoryCache((prev) => ({ ...prev, [anomaly.pool_key]: data }));
+      } catch (err: unknown) {
+        const message = err instanceof Error ? err.message : "Failed to load telemetry";
+        setErrorMap((prev) => ({
+          ...prev,
+          [anomaly.pool_key]: message,
+        }));
+      } finally {
+        setLoadingAnomalyKey(null);
+      }
+    }
+  };
 
   const criticalCount = anomalies.filter((a) => a.severity === "CRITICAL").length;
   const elevatedCount = anomalies.filter((a) => a.severity === "ELEVATED").length;
@@ -521,6 +553,11 @@ export const SituationRoom: React.FC<SituationRoomProps> = ({
             <AnomalyCard
               key={anomaly.pool_key}
               anomaly={anomaly}
+              isExpanded={expandedAnomalyKey === anomaly.pool_key}
+              isLoading={loadingAnomalyKey === anomaly.pool_key}
+              history={historyCache[anomaly.pool_key]}
+              error={errorMap[anomaly.pool_key]}
+              onToggleInspect={handleToggleInspect}
               onInspect={onInspect}
               onViewPivots={onViewPivots}
             />

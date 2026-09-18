@@ -9,13 +9,23 @@ import {
   ChevronDown,
   Settings2,
   Plus,
+  Activity,
+  TrendingDown,
+  TrendingUp,
+  DollarSign,
+  Loader2,
 } from "lucide-react";
-import { PoolSummary, WatchlistEntry } from "../types";
+import { PoolSummary, WatchlistEntry, PoolHistory } from "../types";
+import { fetchPoolHistory } from "../lib/api";
+import { PreemptionChart } from "./PreemptionChart";
+import { PriceTimeline } from "./PriceTimeline";
 import { WatchlistModal } from "./WatchlistModal";
 import {
   cn,
   formatPercent,
   formatPrice,
+  formatSignedPercent,
+  formatSignedZScore,
   DiscountTier,
   getDiscountTier,
   getDiscountTierBadgeClass,
@@ -24,7 +34,7 @@ import {
 
 interface PoolExplorerProps {
   pools: PoolSummary[];
-  onSelectPool: (pool: PoolSummary) => void;
+  onSelectPool?: (pool: PoolSummary) => void;
   onViewPivots: (pool: PoolSummary) => void;
   onToggleWatchlist?: (pool: PoolSummary) => void;
   watchlist?: WatchlistEntry[];
@@ -52,6 +62,37 @@ export const PoolExplorer: React.FC<PoolExplorerProps> = ({
   const [currentPage, setCurrentPage] = useState<number>(1);
   const [pageSize, setPageSize] = useState<number>(50);
   const dropdownRef = useRef<HTMLDivElement>(null);
+
+  // Inline inspection state (identical to Fallback Pivot Recommendations)
+  const [expandedPoolKey, setExpandedPoolKey] = useState<string | null>(null);
+  const [historyCache, setHistoryCache] = useState<Record<string, PoolHistory>>({});
+  const [loadingPoolKey, setLoadingPoolKey] = useState<string | null>(null);
+  const [errorMap, setErrorMap] = useState<Record<string, string>>({});
+
+  const handleToggleInspect = async (pool: PoolSummary) => {
+    if (expandedPoolKey === pool.pool_key) {
+      setExpandedPoolKey(null);
+      return;
+    }
+
+    setExpandedPoolKey(pool.pool_key);
+
+    if (!historyCache[pool.pool_key] && loadingPoolKey !== pool.pool_key) {
+      setLoadingPoolKey(pool.pool_key);
+      try {
+        const data = await fetchPoolHistory(pool.region, pool.zone, pool.machine_type);
+        setHistoryCache((prev) => ({ ...prev, [pool.pool_key]: data }));
+      } catch (err: unknown) {
+        const message = err instanceof Error ? err.message : "Failed to load telemetry";
+        setErrorMap((prev) => ({
+          ...prev,
+          [pool.pool_key]: message,
+        }));
+      } finally {
+        setLoadingPoolKey(null);
+      }
+    }
+  };
 
   type SortField =
     | "machine_type"
@@ -607,146 +648,317 @@ export const PoolExplorer: React.FC<PoolExplorerProps> = ({
                 paginatedPools.map((pool) => {
                   const isCritical = pool.severity === "CRITICAL";
                   const isElevated = pool.severity === "ELEVATED";
+                  const isExpanded = expandedPoolKey === pool.pool_key;
+                  const isLoading = loadingPoolKey === pool.pool_key;
+                  const history = historyCache[pool.pool_key];
+                  const error = errorMap[pool.pool_key];
 
                   return (
-                    <tr
-                      key={pool.pool_key}
-                      className="hover:bg-slate-850/50 transition-colors group"
-                    >
-                      <td className="py-3 px-4 font-bold text-slate-200">
-                        <div className="flex items-center gap-2">
-                          <button
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              onToggleWatchlist?.(pool);
-                            }}
-                            className="p-1 rounded hover:bg-slate-800 transition-colors"
-                            title={pool.is_watchlist ? "Remove from Watchlist" : "Add to Watchlist"}
-                          >
-                            <Star
-                              className={cn(
-                                "w-4 h-4 transition-colors",
-                                pool.is_watchlist
-                                  ? "text-amber-400 fill-amber-400"
-                                  : "text-slate-600 hover:text-amber-400"
-                              )}
-                            />
-                          </button>
-                          <span>{pool.machine_type}</span>
-                          {pool.custom_label && (
-                            <span className="text-[10px] text-amber-300 bg-amber-950/60 px-1.5 py-0.5 rounded border border-amber-800/40">
-                              {pool.custom_label}
-                            </span>
-                          )}
-                        </div>
-                      </td>
-                      <td className="py-3 px-4 text-slate-300">
-                        {pool.region} &bull; <span className="text-slate-400">{pool.zone}</span>
-                      </td>
-                      <td className="py-3 px-4">
-                        <span className="px-2 py-0.5 rounded bg-slate-800 text-slate-300 border border-slate-700 font-bold uppercase text-[10px]">
-                          {pool.family}
-                        </span>
-                      </td>
-                      <td className="py-3 px-4">
-                        <span
-                          className={cn(
-                            "font-bold",
-                            isCritical
-                              ? "text-red-400"
-                              : isElevated
-                              ? "text-amber-400"
-                              : "text-slate-300"
-                          )}
-                        >
-                          {formatPercent(pool.avg_7d_rate)}
-                        </span>
-                      </td>
-                      <td className="py-3 px-4 text-slate-400">{formatPercent(pool.avg_30d_rate)}</td>
-                      <td className="py-3 px-4">
-                        <div className="flex flex-col font-mono">
-                          <div className="flex items-center gap-1.5">
-                            <span className="text-emerald-400 font-semibold">
-                              {formatPrice(pool.hourly_price)}
-                            </span>
-                            {pool.price_hike_detected && (
-                              <span
-                                className="text-[10px] text-rose-300 font-bold bg-rose-950/60 px-1 py-0.2 rounded border border-rose-800/40"
-                                title="Recent Spot Price Hike"
-                              >
-                                ↗
-                              </span>
-                            )}
-                            {pool.price_drop_detected && (
-                              <span
-                                className="text-[10px] text-emerald-300 font-bold bg-emerald-950/60 px-1 py-0.2 rounded border border-emerald-800/40"
-                                title="Recent Spot Price Drop"
-                              >
-                                ↘
+                    <React.Fragment key={pool.pool_key}>
+                      <tr
+                        className={cn(
+                          "transition-colors group",
+                          isExpanded
+                            ? "bg-slate-900/90 border-l-2 border-l-cyan-400"
+                            : "hover:bg-slate-850/50"
+                        )}
+                      >
+                        <td className="py-3 px-4 font-bold text-slate-200">
+                          <div className="flex items-center gap-2">
+                            <button
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                onToggleWatchlist?.(pool);
+                              }}
+                              className="p-1 rounded hover:bg-slate-800 transition-colors"
+                              title={pool.is_watchlist ? "Remove from Watchlist" : "Add to Watchlist"}
+                            >
+                              <Star
+                                className={cn(
+                                  "w-4 h-4 transition-colors",
+                                  pool.is_watchlist
+                                    ? "text-amber-400 fill-amber-400"
+                                    : "text-slate-600 hover:text-amber-400"
+                                )}
+                              />
+                            </button>
+                            <span>{pool.machine_type}</span>
+                            {pool.custom_label && (
+                              <span className="text-[10px] text-amber-300 bg-amber-950/60 px-1.5 py-0.5 rounded border border-amber-800/40">
+                                {pool.custom_label}
                               </span>
                             )}
                           </div>
-                          {pool.ondemand_hourly_price && (
-                            <span className="text-[10px] text-slate-500 line-through decoration-slate-600">
-                              OD: {formatPrice(pool.ondemand_hourly_price)}
-                            </span>
-                          )}
-                        </div>
-                      </td>
-                      <td className="py-3 px-4">
-                        {pool.spot_discount_pct !== undefined && pool.spot_discount_pct !== null ? (
+                        </td>
+                        <td className="py-3 px-4 text-slate-300">
+                          {pool.region} &bull; <span className="text-slate-400">{pool.zone}</span>
+                        </td>
+                        <td className="py-3 px-4">
+                          <span className="px-2 py-0.5 rounded bg-slate-800 text-slate-300 border border-slate-700 font-bold uppercase text-[10px]">
+                            {pool.family}
+                          </span>
+                        </td>
+                        <td className="py-3 px-4">
                           <span
                             className={cn(
-                              "inline-flex items-center text-[11px] font-bold px-2 py-0.5 rounded border font-mono",
-                              getDiscountTierBadgeClass(getDiscountTier(pool.spot_discount_pct))
+                              "font-bold",
+                              isCritical
+                                ? "text-red-400"
+                                : isElevated
+                                ? "text-amber-400"
+                                : "text-slate-300"
                             )}
-                            title={
-                              pool.ondemand_hourly_price
-                                ? `${pool.spot_discount_pct.toFixed(1)}% savings vs on-demand list price (${formatPrice(pool.ondemand_hourly_price)}) [${getDiscountTierLabel(getDiscountTier(pool.spot_discount_pct))}]`
-                                : `${pool.spot_discount_pct.toFixed(1)}% discount`
-                            }
                           >
-                            -{pool.spot_discount_pct.toFixed(1)}%
+                            {formatPercent(pool.avg_7d_rate)}
                           </span>
-                        ) : (
-                          <span className="text-slate-600 font-mono text-[11px]">--</span>
-                        )}
-                      </td>
-                      <td className="py-3 px-4">
-                        <span
-                          className={cn(
-                            "px-2 py-0.5 rounded text-[10px] font-bold uppercase tracking-wider border",
-                            isCritical
-                              ? "bg-red-500/20 text-red-400 border-red-500/40"
-                              : isElevated
-                              ? "bg-amber-500/20 text-amber-400 border-amber-500/40"
-                              : "bg-emerald-500/20 text-emerald-400 border-emerald-500/40"
-                          )}
-                        >
-                          {pool.severity}
-                        </span>
-                      </td>
-                      <td className="py-3 px-4 text-right">
-                        <div className="flex items-center justify-end gap-1.5">
-                          <button
-                            onClick={() => onSelectPool(pool)}
-                            className="p-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 hover:text-white transition-colors"
-                            title="Inspect 30d Curve"
-                          >
-                            <Eye className="w-3.5 h-3.5" />
-                          </button>
-                          {(isCritical || isElevated) && (
-                            <button
-                              onClick={() => onViewPivots(pool)}
-                              className="p-1.5 rounded-lg bg-cyan-600/30 hover:bg-cyan-600 text-cyan-300 hover:text-white transition-colors border border-cyan-500/40"
-                              title="View Pivot Fallbacks"
+                        </td>
+                        <td className="py-3 px-4 text-slate-400">{formatPercent(pool.avg_30d_rate)}</td>
+                        <td className="py-3 px-4">
+                          <div className="flex flex-col font-mono">
+                            <div className="flex items-center gap-1.5">
+                              <span className="text-emerald-400 font-semibold">
+                                {formatPrice(pool.hourly_price)}
+                              </span>
+                              {pool.price_hike_detected && (
+                                <span
+                                  className="text-[10px] text-rose-300 font-bold bg-rose-950/60 px-1 py-0.2 rounded border border-rose-800/40"
+                                  title="Recent Spot Price Hike"
+                                >
+                                  ↗
+                                </span>
+                              )}
+                              {pool.price_drop_detected && (
+                                <span
+                                  className="text-[10px] text-emerald-300 font-bold bg-emerald-950/60 px-1 py-0.2 rounded border border-emerald-800/40"
+                                  title="Recent Spot Price Drop"
+                                >
+                                  ↘
+                                </span>
+                              )}
+                            </div>
+                            {pool.ondemand_hourly_price && (
+                              <span className="text-[10px] text-slate-500 line-through decoration-slate-600">
+                                OD: {formatPrice(pool.ondemand_hourly_price)}
+                              </span>
+                            )}
+                          </div>
+                        </td>
+                        <td className="py-3 px-4">
+                          {pool.spot_discount_pct !== undefined && pool.spot_discount_pct !== null ? (
+                            <span
+                              className={cn(
+                                "inline-flex items-center text-[11px] font-bold px-2 py-0.5 rounded border font-mono",
+                                getDiscountTierBadgeClass(getDiscountTier(pool.spot_discount_pct))
+                              )}
+                              title={
+                                pool.ondemand_hourly_price
+                                  ? `${pool.spot_discount_pct.toFixed(1)}% savings vs on-demand list price (${formatPrice(pool.ondemand_hourly_price)}) [${getDiscountTierLabel(getDiscountTier(pool.spot_discount_pct))}]`
+                                  : `${pool.spot_discount_pct.toFixed(1)}% discount`
+                              }
                             >
-                              <Shuffle className="w-3.5 h-3.5" />
-                            </button>
+                              -{pool.spot_discount_pct.toFixed(1)}%
+                            </span>
+                          ) : (
+                            <span className="text-slate-600 font-mono text-[11px]">--</span>
                           )}
-                        </div>
-                      </td>
-                    </tr>
+                        </td>
+                        <td className="py-3 px-4">
+                          <span
+                            className={cn(
+                              "px-2 py-0.5 rounded text-[10px] font-bold uppercase tracking-wider border",
+                              isCritical
+                                ? "bg-red-500/20 text-red-400 border-red-500/40"
+                                : isElevated
+                                ? "bg-amber-500/20 text-amber-400 border-amber-500/40"
+                                : "bg-emerald-500/20 text-emerald-400 border-emerald-500/40"
+                            )}
+                          >
+                            {pool.severity}
+                          </span>
+                        </td>
+                        <td className="py-3 px-4 text-right">
+                          <div className="flex items-center justify-end gap-1.5">
+                            <button
+                              onClick={() => handleToggleInspect(pool)}
+                              className={cn(
+                                "flex items-center gap-1 px-2.5 py-1 rounded-lg text-xs font-mono font-medium transition-colors border",
+                                isExpanded
+                                  ? "bg-cyan-500/20 text-cyan-300 border-cyan-500/50 hover:bg-cyan-500/30"
+                                  : "bg-slate-800 hover:bg-slate-700 text-cyan-300 hover:text-cyan-200 border-slate-700"
+                              )}
+                              title="Inspect 30-day preemption history and pricing curve directly in this view"
+                            >
+                              <Eye className="w-3.5 h-3.5 text-cyan-400" />
+                              <span className="hidden sm:inline">{isExpanded ? "Hide History" : "Inspect History"}</span>
+                            </button>
+                            {(isCritical || isElevated) && (
+                              <button
+                                onClick={() => onViewPivots(pool)}
+                                className="p-1.5 rounded-lg bg-cyan-600/30 hover:bg-cyan-600 text-cyan-300 hover:text-white transition-colors border border-cyan-500/40"
+                                title="View Pivot Fallbacks"
+                              >
+                                <Shuffle className="w-3.5 h-3.5" />
+                              </button>
+                            )}
+                          </div>
+                        </td>
+                      </tr>
+                      {isExpanded && (
+                        <tr className="bg-slate-950/95 border-b border-cyan-500/30">
+                          <td colSpan={9} className="p-4 sm:p-6">
+                            <div className="space-y-4 bg-slate-900/70 p-4 sm:p-5 rounded-xl border border-slate-800 shadow-inner">
+                              <div className="flex items-center justify-between flex-wrap gap-2">
+                                <div className="flex items-center gap-2">
+                                  <Activity className="w-4 h-4 text-cyan-400" />
+                                  <span className="text-sm font-mono font-bold text-slate-100">
+                                    Telemetry History: {pool.machine_type} &bull; {pool.zone} ({pool.region})
+                                  </span>
+                                </div>
+                                <div className="flex items-center gap-2">
+                                  {history?.severity && (
+                                    <span
+                                      className={cn(
+                                        "px-2.5 py-1 rounded text-xs font-bold uppercase font-mono border",
+                                        history.severity === "CRITICAL"
+                                          ? "bg-red-500/20 text-red-400 border-red-500/40"
+                                          : history.severity === "ELEVATED"
+                                          ? "bg-amber-500/20 text-amber-400 border-amber-500/40"
+                                          : "bg-emerald-500/20 text-emerald-400 border-emerald-500/40"
+                                      )}
+                                    >
+                                      {history.severity}
+                                    </span>
+                                  )}
+                                  {onSelectPool && (
+                                    <button
+                                      onClick={() => onSelectPool(pool)}
+                                      className="text-xs text-slate-400 hover:text-cyan-300 font-mono underline ml-2"
+                                      title="Open full dialog view"
+                                    >
+                                      Open in modal
+                                    </button>
+                                  )}
+                                </div>
+                              </div>
+
+                              {isLoading ? (
+                                <div className="py-12 text-center text-slate-400 font-mono text-xs flex items-center justify-center gap-2 bg-slate-950/60 rounded-xl border border-slate-800">
+                                  <Loader2 className="w-4 h-4 text-cyan-400 animate-spin" />
+                                  <span>Fetching 30-day capacity history telemetry...</span>
+                                </div>
+                              ) : error ? (
+                                <div className="py-4 px-4 text-center text-red-400 font-mono text-xs bg-red-950/20 border border-red-500/30 rounded-lg">
+                                  Failed to load telemetry: {error}
+                                </div>
+                              ) : history ? (
+                                <div className="space-y-4">
+                                  {/* Quick Metrics Strip */}
+                                  <div className="grid grid-cols-2 md:grid-cols-4 gap-3 font-mono text-xs">
+                                    <div className="bg-slate-950/80 p-3 rounded-lg border border-slate-800">
+                                      <div className="text-[10px] text-slate-400 mb-0.5">Recent 7d Rate</div>
+                                      <div className="text-base font-bold text-slate-100">
+                                        {formatPercent(history.recent_7d_rate)}
+                                      </div>
+                                      <div className="text-[10px] text-slate-500">
+                                        Baseline: {formatPercent(history.baseline_rate)}
+                                      </div>
+                                    </div>
+
+                                    <div className="bg-slate-950/80 p-3 rounded-lg border border-slate-800">
+                                      <div className="text-[10px] text-slate-400 mb-0.5">Rate Delta (&Delta;)</div>
+                                      <div
+                                        className={cn(
+                                          "text-base font-bold",
+                                          history.rate_delta > 0.15
+                                            ? "text-red-400"
+                                            : history.rate_delta > 0.05
+                                            ? "text-amber-400"
+                                            : "text-emerald-400"
+                                        )}
+                                      >
+                                        {formatSignedPercent(history.rate_delta)}
+                                      </div>
+                                      <div className="text-[10px] text-slate-500">vs 23d baseline</div>
+                                    </div>
+
+                                    <div className="bg-slate-950/80 p-3 rounded-lg border border-slate-800">
+                                      <div className="text-[10px] text-slate-400 mb-0.5">Regime Z-Score</div>
+                                      <div
+                                        className={cn(
+                                          "text-base font-bold flex items-center gap-1",
+                                          history.z_score >= 2.5
+                                            ? "text-red-400"
+                                            : history.z_score >= 1.8
+                                            ? "text-amber-400"
+                                            : "text-emerald-400"
+                                        )}
+                                      >
+                                        {history.z_score >= 0 ? (
+                                          <TrendingUp className="w-3.5 h-3.5" />
+                                        ) : (
+                                          <TrendingDown className="w-3.5 h-3.5" />
+                                        )}
+                                        {formatSignedZScore(history.z_score)}
+                                      </div>
+                                      <div className="text-[10px] text-slate-500">
+                                        {history.z_score >= 2.5
+                                          ? "Severe Congestion"
+                                          : history.z_score >= 1.8
+                                          ? "Elevated Risk"
+                                          : "Stable Baseline"}
+                                      </div>
+                                    </div>
+
+                                    <div className="bg-slate-950/80 p-3 rounded-lg border border-slate-800">
+                                      <div className="text-[10px] text-slate-400 mb-0.5 flex items-center justify-between">
+                                        <span>Current Spot Price</span>
+                                        {history.spot_discount_pct !== undefined && history.spot_discount_pct !== null && (
+                                          <span
+                                            className={cn(
+                                              "text-[10px] font-bold px-1.5 py-0.5 rounded border",
+                                              getDiscountTierBadgeClass(getDiscountTier(history.spot_discount_pct))
+                                            )}
+                                            title={
+                                              history.ondemand_hourly_price
+                                                ? `${history.spot_discount_pct.toFixed(1)}% savings vs on-demand (${formatPrice(history.ondemand_hourly_price)}) [${getDiscountTierLabel(getDiscountTier(history.spot_discount_pct))}]`
+                                                : `${history.spot_discount_pct.toFixed(1)}% discount`
+                                            }
+                                          >
+                                            -{history.spot_discount_pct.toFixed(0)}%
+                                          </span>
+                                        )}
+                                      </div>
+                                      <div className="text-base font-bold text-emerald-400 flex items-center gap-0.5">
+                                        <DollarSign className="w-3.5 h-3.5" />
+                                        {formatPrice(history.current_hourly_price)}
+                                      </div>
+                                      <div className="text-[10px] text-slate-500 flex items-center justify-between">
+                                        <span>Billed / hr</span>
+                                        {history.ondemand_hourly_price !== undefined && history.ondemand_hourly_price !== null && (
+                                          <span className="text-slate-400">
+                                            List: {formatPrice(history.ondemand_hourly_price)}
+                                          </span>
+                                        )}
+                                      </div>
+                                    </div>
+                                  </div>
+
+                                  {/* Charts */}
+                                  <div className="space-y-4">
+                                    <PreemptionChart rates={history.rates} />
+                                    <PriceTimeline
+                                      intervals={history.intervals}
+                                      ondemandPrice={history.ondemand_hourly_price}
+                                      discountPct={history.spot_discount_pct}
+                                    />
+                                  </div>
+                                </div>
+                              ) : null}
+                            </div>
+                          </td>
+                        </tr>
+                      )}
+                    </React.Fragment>
                   );
                 })
               )}

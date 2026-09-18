@@ -8,8 +8,13 @@ import {
   Shuffle,
   Star,
   HelpCircle,
+  Eye,
+  Activity,
+  Loader2,
 } from "lucide-react";
-import { AnomalyItem } from "../types";
+import { AnomalyItem, PoolHistory } from "../types";
+import { PreemptionChart } from "./PreemptionChart";
+import { PriceTimeline } from "./PriceTimeline";
 import {
   cn,
   formatPercent,
@@ -21,15 +26,24 @@ import {
   getDiscountTierLabel,
 } from "../lib/utils";
 
-
 interface AnomalyCardProps {
   anomaly: AnomalyItem;
-  onInspect: (anomaly: AnomalyItem) => void;
+  isExpanded?: boolean;
+  isLoading?: boolean;
+  history?: PoolHistory;
+  error?: string;
+  onToggleInspect?: (anomaly: AnomalyItem) => void;
+  onInspect?: (anomaly: AnomalyItem) => void;
   onViewPivots: (anomaly: AnomalyItem) => void;
 }
 
 export const AnomalyCard: React.FC<AnomalyCardProps> = ({
   anomaly,
+  isExpanded = false,
+  isLoading = false,
+  history,
+  error,
+  onToggleInspect,
   onInspect,
   onViewPivots,
 }) => {
@@ -39,6 +53,7 @@ export const AnomalyCard: React.FC<AnomalyCardProps> = ({
     <div
       className={cn(
         "rounded-xl border p-5 transition-all duration-200 hover:shadow-lg relative overflow-hidden backdrop-blur-sm",
+        isExpanded ? "col-span-full border-cyan-500/60 shadow-xl shadow-cyan-950/20" : "",
         isCritical
           ? "border-red-500/40 bg-red-950/15 hover:border-red-500/70"
           : "border-amber-500/40 bg-amber-950/15 hover:border-amber-500/70"
@@ -186,10 +201,17 @@ export const AnomalyCard: React.FC<AnomalyCardProps> = ({
       {/* Card Actions */}
       <div className="flex items-center gap-2">
         <button
-          onClick={() => onInspect(anomaly)}
-          className="flex-1 text-xs py-2 px-3 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-200 transition-colors font-medium border border-slate-700/60 text-center"
+          onClick={() => (onToggleInspect ? onToggleInspect(anomaly) : onInspect?.(anomaly))}
+          className={cn(
+            "flex-1 flex items-center justify-center gap-1.5 text-xs py-2 px-3 rounded-lg font-mono font-medium transition-colors border",
+            isExpanded
+              ? "bg-cyan-500/20 text-cyan-300 border-cyan-500/50 hover:bg-cyan-500/30"
+              : "bg-slate-800 hover:bg-slate-700 text-cyan-300 hover:text-cyan-200 border-slate-700/60"
+          )}
+          title="Inspect 30-day preemption history and pricing curve directly in this view"
         >
-          Inspect 30d History
+          <Eye className="w-3.5 h-3.5 text-cyan-400" />
+          <span>{isExpanded ? "Hide History" : "Inspect History"}</span>
         </button>
         <button
           onClick={() => onViewPivots(anomaly)}
@@ -205,6 +227,49 @@ export const AnomalyCard: React.FC<AnomalyCardProps> = ({
           {anomaly.pivot_count > 0 ? `Pivots (${anomaly.pivot_count})` : "No Pivots"}
         </button>
       </div>
+
+      {/* Inline Telemetry Panel */}
+      {isExpanded && (
+        <div className="mt-5 pt-4 border-t border-slate-800 space-y-4">
+          <div className="flex items-center justify-between flex-wrap gap-2">
+            <div className="flex items-center gap-2">
+              <Activity className="w-4 h-4 text-cyan-400" />
+              <span className="text-xs font-mono font-bold text-slate-200">
+                30-Day Telemetry Curves: {anomaly.machine_type} &bull; {anomaly.zone} ({anomaly.region})
+              </span>
+            </div>
+            {onInspect && (
+              <button
+                onClick={() => onInspect(anomaly)}
+                className="text-xs text-slate-400 hover:text-cyan-300 font-mono underline"
+                title="Open full dialog view"
+              >
+                Open in modal
+              </button>
+            )}
+          </div>
+
+          {isLoading ? (
+            <div className="py-12 text-center text-slate-400 font-mono text-xs flex items-center justify-center gap-2 bg-slate-950/60 rounded-xl border border-slate-800">
+              <Loader2 className="w-4 h-4 text-cyan-400 animate-spin" />
+              <span>Fetching 30-day capacity history telemetry...</span>
+            </div>
+          ) : error ? (
+            <div className="py-4 px-4 text-center text-red-400 font-mono text-xs bg-red-950/20 border border-red-500/30 rounded-lg">
+              Failed to load telemetry: {error}
+            </div>
+          ) : history ? (
+            <div className="space-y-4">
+              <PreemptionChart rates={history.rates} />
+              <PriceTimeline
+                intervals={history.intervals}
+                ondemandPrice={history.ondemand_hourly_price}
+                discountPct={history.spot_discount_pct}
+              />
+            </div>
+          ) : null}
+        </div>
+      )}
     </div>
   );
 };
